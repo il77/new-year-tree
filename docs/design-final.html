@@ -1,0 +1,214 @@
+<!doctype html>
+<!--
+  Пример дизайна финального состояния «Народной ёлки» — 31 декабря,
+  весь мир построен. Это концепт-мок (design mock), НЕ продуктовый код:
+  рисует на Canvas то, к чему придём в сторисах эпиков 2–4.
+  Открой файл в браузере или: node scripts/serve.js → /docs/design-final.html
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Народная ёлка — финальный дизайн (31 декабря)</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05070f; }
+  canvas { display: block; width: 100vw; height: 100vh; }
+  .hud {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    display: flex; justify-content: space-between; align-items: flex-end;
+    padding: 18px 26px; box-sizing: border-box;
+    font: 500 15px/1.4 system-ui, sans-serif; color: #f7e7c0;
+    text-shadow: 0 1px 6px #000; pointer-events: none;
+  }
+  .hud .big { font-size: 22px; color: #ffd98a; }
+  .caption { position: fixed; top: 16px; left: 0; right: 0; text-align: center;
+    font: 500 14px system-ui, sans-serif; color: #9fb4d8; text-shadow: 0 1px 4px #000; }
+</style>
+</head>
+<body>
+<canvas id="scene"></canvas>
+<div class="caption">Концепт-мок · 31 декабря · мир построен, звезда на максимуме, луч в небо</div>
+<div class="hud">
+  <div><span class="big">0</span> дней до Нового года 🎄</div>
+  <div>Гирлянда зажжена по всему миру: <b>2 481</b> визит</div>
+</div>
+<script>
+'use strict';
+const cv = document.getElementById('scene');
+const ctx = cv.getContext('2d');
+let W, H, stars = [], snow = [], bulbs = [], people = [], windows = [], firs = [];
+
+function rnd(a, b) { return a + Math.random() * (b - a); }
+
+function build() {
+  W = cv.width = innerWidth * devicePixelRatio;
+  H = cv.height = innerHeight * devicePixelRatio;
+  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  const w = W / devicePixelRatio, h = H / devicePixelRatio;
+
+  stars = Array.from({ length: 140 }, () => ({ x: rnd(0, w), y: rnd(0, h * 0.6), r: rnd(0.4, 1.6), p: rnd(0, 6.3) }));
+  snow = Array.from({ length: 220 }, () => ({ x: rnd(0, w), y: rnd(0, h), r: rnd(0.8, 2.6), v: rnd(12, 42), d: rnd(0, 6.3) }));
+  firs = [];
+  for (let i = 0; i < 26; i++) {
+    const side = i % 2 ? 1 : -1;
+    firs.push({ x: w / 2 + side * rnd(w * 0.16, w * 0.48), base: h * 0.78 + rnd(-8, 14), hh: rnd(40, 110), s: rnd(0.7, 1.3) });
+  }
+  windows = [];
+  const cityY = h * 0.66;
+  for (let b = 0; b < 14; b++) {
+    const bw = rnd(26, 64), bh = rnd(34, 110);
+    const bx = (b / 14) * w + rnd(-10, 10);
+    for (let wy = 0; wy < Math.floor(bh / 14); wy++)
+      for (let wx = 0; wx < Math.floor(bw / 13); wx++)
+        if (Math.random() < 0.55)
+          windows.push({ x: bx + 5 + wx * 13, y: cityY - bh + 6 + wy * 14, p: rnd(0, 6.3) });
+    firs.push({ x: bx + bw / 2, base: cityY, hh: bh, bw, city: true });
+  }
+  people = Array.from({ length: 9 }, (_, i) => ({ x: w * 0.12 + i * (w * 0.09) + rnd(-14, 14), y: h * 0.86 + rnd(-4, 6), p: rnd(0, 6.3), h: rnd(15, 22) }));
+
+  bulbs = [];
+  const cx = w / 2, top = h * 0.16, bot = h * 0.74, rows = 11;
+  for (let r = 0; r < rows; r++) {
+    const y = top + (bot - top) * (r / rows);
+    const half = 8 + (r / rows) * (w * 0.115);
+    const n = 5 + r;
+    for (let i = 0; i <= n; i++) {
+      const x = cx - half + (2 * half * i) / n;
+      bulbs.push({ x, y, big: (r * 7 + i) % 23 === 0, p: rnd(0, 6.3), hue: rnd(-18, 22) });
+    }
+  }
+}
+addEventListener('resize', build);
+build();
+
+function fir(x, base, hh, fill) {
+  ctx.fillStyle = fill;
+  for (let l = 0; l < 3; l++) {
+    const ly = base - hh * (l * 0.3 + 0.12), lw = (hh * 0.5) * (1 - l * 0.25);
+    ctx.beginPath();
+    ctx.moveTo(x, ly - hh * 0.42);
+    ctx.lineTo(x - lw, ly);
+    ctx.lineTo(x + lw, ly);
+    ctx.closePath(); ctx.fill();
+  }
+}
+
+let last = performance.now();
+function frame(now) {
+  const dt = Math.min(0.05, (now - last) / 1000); last = now;
+  const t = now / 1000;
+  const w = W / devicePixelRatio, h = H / devicePixelRatio;
+
+  // небо
+  const sky = ctx.createLinearGradient(0, 0, 0, h);
+  sky.addColorStop(0, '#050a1c'); sky.addColorStop(0.6, '#0b1430'); sky.addColorStop(1, '#101a36');
+  ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
+
+  // звёзды (мерцающие)
+  for (const s of stars) {
+    ctx.globalAlpha = 0.35 + 0.65 * Math.abs(Math.sin(t * 0.7 + s.p));
+    ctx.fillStyle = '#dfe9ff';
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+
+  // город на горизонте: тёплые окна
+  for (const f of firs) if (f.city) {
+    ctx.fillStyle = '#0a1124';
+    ctx.fillRect(f.x - f.bw / 2, f.base - f.hh, f.bw, f.hh);
+  }
+  for (const wd of windows) {
+    ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 1.3 + wd.p);
+    ctx.fillStyle = '#ffcf7d';
+    ctx.fillRect(wd.x, wd.y, 6, 8);
+  }
+  ctx.globalAlpha = 1;
+
+  // лес по бокам
+  for (const f of firs) if (!f.city) fir(f.x, f.base, f.hh, '#0c1a26');
+
+  // земля
+  const gnd = ctx.createLinearGradient(0, h * 0.72, 0, h);
+  gnd.addColorStop(0, '#1b2743'); gnd.addColorStop(1, '#263354');
+  ctx.fillStyle = gnd;
+  ctx.beginPath(); ctx.moveTo(0, h * 0.76);
+  ctx.quadraticCurveTo(w / 2, h * 0.70, w, h * 0.76);
+  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.fill();
+
+  // ===== ЁЛКА =====
+  const cx = w / 2, top = h * 0.16, bot = h * 0.74, hh = bot - top;
+  // тёплое свечение вокруг всей ёлки (full-tree glow)
+  const glow = ctx.createRadialGradient(cx, top + hh * 0.5, 10, cx, top + hh * 0.5, hh * 0.85);
+  glow.addColorStop(0, 'rgba(255,190,90,0.22)'); glow.addColorStop(1, 'rgba(255,190,90,0)');
+  ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h);
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(120,255,170,0.10)';
+  for (let l = 0; l < 5; l++) {
+    const ly = top + hh * (l * 0.19 + 0.10), lw = (hh * 0.44) * (1 - l * 0.17);
+    ctx.fillStyle = l % 2 ? '#0f4a33' : '#0d3f2d';
+    ctx.beginPath();
+    ctx.moveTo(cx, ly - hh * 0.30);
+    ctx.lineTo(cx - lw, ly);
+    ctx.lineTo(cx + lw, ly);
+    ctx.closePath(); ctx.fill();
+  }
+  ctx.restore();
+  ctx.fillStyle = '#3a2415'; ctx.fillRect(cx - 7, bot - 4, 14, 26);
+
+  // гирлянда: всё горит, большие «слитые» лампы
+  for (const b of bulbs) {
+    const tw = 0.75 + 0.25 * Math.sin(t * 2.2 + b.p);
+    const r = (b.big ? 6.5 : 2.6) * tw;
+    const col = `hsl(${38 + b.hue},100%,${62 + 12 * tw}%)`;
+    ctx.shadowColor = col; ctx.shadowBlur = b.big ? 26 : 12;
+    ctx.fillStyle = col;
+    ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 7); ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // звезда на максимаем + луч в небо
+  const sx = cx, sy = top - hh * 0.05;
+  const beam = ctx.createLinearGradient(sx, sy, sx, 0);
+  beam.addColorStop(0, 'rgba(255,225,140,0.55)'); beam.addColorStop(1, 'rgba(255,225,140,0)');
+  ctx.fillStyle = beam;
+  ctx.beginPath();
+  ctx.moveTo(sx - 4, sy); ctx.lineTo(sx + 4, sy); ctx.lineTo(sx + 46, 0); ctx.lineTo(sx - 46, 0);
+  ctx.closePath(); ctx.fill();
+
+  const pulse = 1 + 0.12 * Math.sin(t * 3);
+  ctx.shadowColor = '#ffd970'; ctx.shadowBlur = 40 * pulse;
+  ctx.fillStyle = '#ffe9a8';
+  ctx.save(); ctx.translate(sx, sy); ctx.rotate(t * 0.15);
+  ctx.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = (i * Math.PI) / 5, rr = (i % 2 ? 7 : 17) * pulse;
+    ctx.lineTo(Math.cos(a - Math.PI / 2) * rr, Math.sin(a - Math.PI / 2) * rr);
+  }
+  ctx.closePath(); ctx.fill(); ctx.restore();
+  ctx.shadowBlur = 0;
+
+  // люди, машущие рукой
+  for (const p of people) {
+    ctx.strokeStyle = '#050a16'; ctx.fillStyle = '#050a16'; ctx.lineWidth = 2.4;
+    ctx.beginPath(); ctx.arc(p.x, p.y - p.h, 3.4, 0, 7); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(p.x, p.y - p.h + 4); ctx.lineTo(p.x, p.y); ctx.stroke();
+    const wa = Math.sin(t * 4 + p.p) * 0.7;
+    ctx.beginPath(); ctx.moveTo(p.x, p.y - p.h + 8);
+    ctx.lineTo(p.x + Math.cos(-1.9 + wa) * 9, p.y - p.h + 8 + Math.sin(-1.9 + wa) * 9); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(p.x, p.y - p.h + 8); ctx.lineTo(p.x - 8, p.y - p.h + 13); ctx.stroke();
+  }
+
+  // снег
+  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  for (const s of snow) {
+    s.y += s.v * dt; s.x += Math.sin(t + s.d) * 12 * dt;
+    if (s.y > h) { s.y = -4; s.x = rnd(0, w); }
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
+  }
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
