@@ -25,9 +25,17 @@ export const RAY_WIDTH = 1.5;
  * @param {number} x центр искры по горизонтали
  * @param {number} y центр искры по вертикали
  * @param {number} t время в мс; влияет только на лёгкое мерцание масштаба
+ * @param {number} [alpha] непрозрачность 0..1 (падение искры, story 1.3);
+ *   1 (по умолчанию) — рисует как раньше, не трогает globalAlpha;
+ *   <= 0 — искра не рисуется вовсе (мир проявился)
  * @returns {void}
  */
-export function drawSpark(ctx, x, y, t = 0) {
+export function drawSpark(ctx, x, y, t = 0, alpha = 1) {
+  if (alpha <= 0) return;
+  // Альфа только в ритуале: восстанавливаем 1 — каждый кадр начинается
+  // с чистого состояния, а объекты контракта рисуются после искры.
+  if (alpha < 1) ctx.globalAlpha = alpha;
+
   // Статичный кадр (t = 0) даёт масштаб 1; анимация — scope story 1.5.
   // t в миллисекундах: sin(t / 1000) — период 2π·1000 мс ≈ 6.3 с,
   // плавное мерцание, а не стробоскоп.
@@ -59,4 +67,6 @@ export function drawSpark(ctx, x, y, t = 0) {
   ctx.arc(x, y, CORE_RADIUS * twinkle, 0, Math.PI * 2);
   ctx.fillStyle = CORE_COLOR;
   ctx.fill();
+
+  if (alpha < 1) ctx.globalAlpha = 1;
 }

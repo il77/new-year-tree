@@ -22,6 +22,8 @@
       width: 100vw;
       height: 100vh;
       background: #000;
+      /* Тап по всей странице — жест ритуала, а не скролл/зум браузера. */
+      touch-action: none;
     }
 
     /* Подпись — DOM-элемент над canvas, не рисуется на canvas */
@@ -40,6 +42,9 @@
       text-indent: 0.35em;
       pointer-events: none;
       user-select: none;
+      /* Тихое исчезновение по ритуалу (story 1.3): opacity → 0 из JS,
+         никаких поп-апов и мгновенных пропаданий. */
+      transition: opacity 700ms ease;
     }
 
     /* Текстовая заглушка, если 2D Canvas недоступен */

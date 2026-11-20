@@ -29,13 +29,22 @@ export function sparkAt(width, height) {
  * @param {{ draw: (ctx: CanvasRenderingContext2D, width: number, height: number, t: number) => void } | null} [contract]
  *   контракт рендера (src/contract.js): объекты эпиков 2–4 рисуются после
  *   фона и искры; null — кадр только из фона и искры
+ * @param {{ progress: (t: number) => { spark: { yRatio: number, alpha: number } } } | null} [ritual]
+ *   контроллер ритуала (src/ritual.js): искра падает и гаснет по прогрессу;
+ *   null — прежний статичный кадр (поведение без ритуала не меняется)
  * @returns {void}
  */
-export function renderFrame(ctx, width, height, t = 0, contract = null) {
+export function renderFrame(ctx, width, height, t = 0, contract = null, ritual = null) {
   ctx.fillStyle = BACKGROUND;
   ctx.fillRect(0, 0, width, height);
-  const { x, y } = sparkAt(width, height);
-  drawSpark(ctx, x, y, t);
+  if (ritual) {
+    // Ритуал: позиция/непрозрачность искры — чистый прогресс по t.
+    const { spark } = ritual.progress(t);
+    drawSpark(ctx, width * SPARK_POSITION.xRatio, spark.yRatio * height, t, spark.alpha);
+  } else {
+    const { x, y } = sparkAt(width, height);
+    drawSpark(ctx, x, y, t);
+  }
   if (contract) {
     // Объекты контракта — строго после фона и искры, порядок — по слоям
     // (см. docs/contract.md).
