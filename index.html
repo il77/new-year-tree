@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Народная ёлка</title>
+  <!-- Пустая иконка data: — браузер не запрашивает /favicon.ico (нет 404 в консоли). -->
+  <link rel="icon" href="data:,">
+  <style>
+    html,
+    body {
+      margin: 0;
+      padding: 0;
+      width: 100%;
+      height: 100%;
+      background: #000;
+      overflow: hidden;
+    }
+
+    #scene {
+      display: block;
+      width: 100vw;
+      height: 100vh;
+      background: #000;
+    }
+
+    /* Подпись — DOM-элемент над canvas, не рисуется на canvas */
+    #caption {
+      position: fixed;
+      top: 48%;
+      left: 0;
+      right: 0;
+      margin: 0;
+      text-align: center;
+      color: rgba(255, 244, 214, 0.92);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(1.4rem, 4vw, 2.6rem);
+      font-style: italic;
+      letter-spacing: 0.35em;
+      text-indent: 0.35em;
+      pointer-events: none;
+      user-select: none;
+    }
+
+    /* Текстовая заглушка, если 2D Canvas недоступен */
+    #fallback {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 0;
+      padding: 2rem;
+      text-align: center;
+      color: rgba(255, 244, 214, 0.92);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: 1.2rem;
+      background: #000;
+    }
+
+    /* [hidden]-атрибут: авторский display: block у #scene перебивает
+       UA-правило [hidden] { display: none } — объявляем явно. */
+    #scene[hidden],
+    #fallback[hidden],
+    #caption[hidden] {
+      display: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="scene" aria-label="Тёмная сцена с искрой"></canvas>
+  <p id="caption">зажги</p>
+  <p id="fallback" hidden>Ваш браузер не поддерживает 2D Canvas — сцена недоступна.</p>
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+# A container's agreed children, in its tickets/ folder; tickets.py ignores unknown keys.
+# Table order is build order. `id` is permanent, never reused.
+# One kind of table per file: an initiative with no epics uses [[entry]] tables, a parent initiative [[initiative]] tables.
+# No status here: the plan carries `status`; `tickets.py mirror` writes `tracker_status` to the leaf.
+# next_id = 7 # written by `tickets.py move`; the folder's counter never goes below it
+
+[[epic]]
+id = 1
+slug = "epic-scene"
+title = "Сцена и ритуал входа"
+description = "Живая новогодняя сцена развернута: первый вход проигрывает порог-сотворение, повторные — мгновенно и без преград; снег, мерцание и покачивание камеры идут всегда. Публикует контракт рендера сцены — как объекты попадают на ёлку; его первые stories — platform-baseline (scaffold и деплой)."
+covers = ["R9", "R10", "R11"]
+
+[[epic]]
+id = 2
+slug = "epic-garland"
+title = "Общая гирлянда и счётчик входов"
+description = "Каждый визит любого посетителя зажигает огонёк в одной общей гирлянде на серверном хранилище (папка), внизу страницы общий счётчик, каждые 10 входов схлопываются в один большой; при заполнении ёлки даёт эффект сияния — его дальше доводит до максимума 31 декабря epic-calendar."
+covers = ["R1", "R2", "R3", "R4", "R5"]
+after = [{ epic = 1, needs = "контракт рендера сцены (как объекты попадают на ёлку)" }]
+
+[[epic]]
+id = 3
+slug = "epic-calendar"
+title = "Календарь и звезда"
+description = "На странице счётчик дней до Нового года; звезда на верхушке ярче по мере приближения к 31 декабря, 31 декабря — максимум яркости у звезды и сияние ёлки."
+covers = ["R6", "R7"]
+after = [{ epic = 1, needs = "контракт рендера сцены" }, { epic = 2, needs = "эффект сияния ёлки, который календарь доводит до максимума 31 декабря" }]
+
+[[epic]]
+id = 4
+slug = "epic-world"
+title = "Мир растёт вокруг ёлки"
+description = "С ростом суммарного числа входов вокруг ёлки последовательно появляются слои мира: снег, ёлочный лес, города с окнами, машущие фигуры, луч из верхушки в небо. Фоновый снег и покачивание камеры уже держит epic-scene (R11) — этот epic добавляет именно появляющиеся слои; календарные элементы (звезда, счётчик дней) держит epic-calendar и не пересекаются с слоями мира."
+covers = ["R8"]
+after = [{ epic = 1, needs = "контракт рендера сцены" }, { epic = 2, needs = "общий счётчик входов как источник роста слоёв" }]

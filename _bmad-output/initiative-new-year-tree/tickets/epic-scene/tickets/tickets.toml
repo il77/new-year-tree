@@ -1,0 +1,71 @@
+# A container's agreed children, in its tickets/ folder; tickets.py ignores unknown keys.
+# Table order is build order. `id` is permanent, never reused.
+# One kind of table per file: an initiative with no epics uses [[entry]] tables, a parent initiative [[initiative]] tables.
+# No status here: the plan carries `status`; `tickets.py mirror` writes `tracker_status` to the leaf.
+# next_id = 7 # written by `tickets.py move`; the folder's counter never goes below it
+
+[[entry]]
+id = 1
+type = "story"
+title = "Scaffold, деплой и тёмная страница с искрой"
+description = "Поднимает проект (2D Canvas, без внешних зависимостей), деплой по URL, и на пустой тёмной странице горит одна искра с подписью «зажги» — темнота и искра до касания (часть R1 до ритуала). Setup и запуск стартера — шаг человека."
+verify = "Человек открывает задеплоенный URL и видит чёрный экран с одной искрой «зажги»; тест рендера искры проходит."
+covers = ["R1", "R4"]
+after = []
+hitl = true
+risk = "medium"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Контракт рендера сцены"
+description = "Stub и документация способа добавлять объекты на сцену — общий интерфейс, которым пользоваться эпикам 2–4. Строго между эпиками: сами stories 3 и 5 и есть сцена (они строят её, а не потребляют контракт), поэтому `after` на эту story у них нет."
+verify = "Документ контракта существует, и тестовый объект (заглушка) добавляется через него и отображается на сцене."
+covers = ["R5"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Ритуал первого входа"
+description = "Касание искры — она падает, и за ней проявляются снег, лес и ёлка (часть R1: касание, проявление, флаг localStorage первого входа). Наименее уверенная часть — тайминг и ощущение анимации проявления."
+verify = "В чистом браузере (без localStorage) страница открывается в темноте с искрой, после касания проявляется мир; повторное открытие в том же браузере этот ритуал не играет."
+covers = ["R1"]
+after = [1]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Повторный вход без преград"
+description = "Если в localStorage стоит признак первого входа — страница открывается сразу в готовом мире, мгновенно, без поп-апов и действий."
+verify = "После первого ритуала любое открытие страницы в том же браузере сразу показывает готовый мир без преград; ритуал не повторяется."
+covers = ["R2"]
+after = [3]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Живая сцена"
+description = "Снег падает, огоньки мерцают, камера слегка покачивается — движение не останавливается, пока открыта страница, и не мешает ритуалу."
+verify = "На открытой странице видно непрерывное движение (снег, мерцание, покачивание); тест анимационного цикла проходит; ритуал первого входа (story 3) остаётся рабочим."
+covers = ["R3"]
+after = [1, 3]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Refactor sweep"
+description = "Уборка по итогам планов и ревью эпика: только чистка, ничего не переносится из других stories; scope фиксируется в начале."
+verify = "Замечания ревью закрыты, сборка и все тесты эпика зелёные."
+covers = []
+after = [2, 3, 4, 5]
+hitl = false
+risk = "low"
