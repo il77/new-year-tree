@@ -75,6 +75,21 @@
 <body>
   <canvas id="scene" aria-label="Тёмная сцена с искрой"></canvas>
   <p id="caption">зажги</p>
+  <!-- Тихий повторный вход (story 1.4): модуль main.js отложенный — первый
+       paint может обогнать его, и подпись мелькнула бы поверх готового мира.
+       Синхронный скрипт (без defer/async/type) выполняется при парсинге, до
+       первого кадра. Ключ/значение сверяются с src/ritual.js тестом
+       test/repeat.test.js. -->
+  <script>
+    try {
+      if (localStorage.getItem('ny_tree_first_visit') === '1') {
+        const caption = document.getElementById('caption');
+        if (caption) caption.hidden = true;
+      }
+    } catch {
+      // Хранилище недоступно — подпись остаётся, ритуал решит сам (readFirstVisit).
+    }
+  </script>
   <p id="fallback" hidden>Ваш браузер не поддерживает 2D Canvas — сцена недоступна.</p>
   <script type="module" src="./src/main.js"></script>
 </body>

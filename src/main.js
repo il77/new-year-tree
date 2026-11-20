@@ -43,7 +43,7 @@ export function bootstrap(doc, win, contract = sceneContract) {
   }
 
   // Флаг первого входа: есть "1" → сразу готовый мир, ритуал не играется
-  // (story 1.4 читает ровно тем же вызовом readFirstVisit).
+  // (story 1.4: тот же вызов readFirstVisit доказан в test/repeat.test.js).
   const ritual = createRitual({ firstVisit: readFirstVisit(storage) });
 
   // Единый источник времени кадра: performance.now, иначе Date.now.
