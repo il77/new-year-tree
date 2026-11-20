@@ -1,8 +1,9 @@
 <!doctype html>
 <!--
   Пример дизайна финального состояния «Народной ёлки» — 31 декабря,
-  весь мир построен. Это концепт-мок (design mock), НЕ продуктовый код:
-  рисует на Canvas то, к чему придём в сторисах эпиков 2–4.
+  весь мир построен. Концепт-мок (design mock), НЕ продуктовый код.
+  Стиль: объёмные гладкие объекты (R12, docs/style.md) — скруглённые
+  силуэты, радиальные градиенты, блики верх-слева, мягкие свечения.
   Открой файл в браузере или: node scripts/serve.js → /docs/design-final.html
 -->
 <html lang="ru">
@@ -10,7 +11,7 @@
 <meta charset="utf-8">
 <title>Народная ёлка — финальный дизайн (31 декабря)</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #05070f; }
+  html, body { margin: 0; height: 100%; background: #05070f; overflow: hidden; }
   canvas { display: block; width: 100vw; height: 100vh; }
   .hud {
     position: fixed; left: 0; right: 0; bottom: 0;
@@ -21,12 +22,13 @@
   }
   .hud .big { font-size: 22px; color: #ffd98a; }
   .caption { position: fixed; top: 16px; left: 0; right: 0; text-align: center;
-    font: 500 14px system-ui, sans-serif; color: #9fb4d8; text-shadow: 0 1px 4px #000; }
+    font: 500 14px system-ui, sans-serif; color: #9fb4d8; text-shadow: 0 1px 4px #000;
+    pointer-events: none; }
 </style>
 </head>
 <body>
 <canvas id="scene"></canvas>
-<div class="caption">Концепт-мок · 31 декабря · мир построен, звезда на максимуме, луч в небо</div>
+<div class="caption">Концепт-мок · 31 декабря · объёмные гладкие объекты · мир построен, луч в небо</div>
 <div class="hud">
   <div><span class="big">0</span> дней до Нового года 🎄</div>
   <div>Гирлянда зажжена по всему миру: <b>2 481</b> визит</div>
@@ -35,174 +37,371 @@
 'use strict';
 const cv = document.getElementById('scene');
 const ctx = cv.getContext('2d');
-let W, H, stars = [], snow = [], bulbs = [], people = [], windows = [], firs = [];
+let W, H, dpr, w, h;
+let stars = [], snow = [], bulbs = [], people = [], buildings = [], firs = [];
 
-function rnd(a, b) { return a + Math.random() * (b - a); }
+const rnd = (a, b) => a + Math.random() * (b - a);
+const lerp = (a, b, k) => a + (b - a) * k;
+/** Смешивает hex-цвет с чёрным (k=0 → исходный, k=1 → чёрный). */
+function shade(hex, k) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  return `rgb(${Math.round(r * (1 - k))},${Math.round(g * (1 - k))},${Math.round(b * (1 - k))})`;
+}
+/** Радиальный градиент «объёма»: блик верх-слева → основной тон → тень. */
+function volumeGradient(x, y, r, color, light = 0.32) {
+  const g = ctx.createRadialGradient(
+    x - r * 0.38, y - r * 0.42, r * 0.08,
+    x, y, r * 1.05,
+  );
+  g.addColorStop(0, `rgba(255,255,255,${light})`);
+  g.addColorStop(0.28, color);
+  g.addColorStop(1, shade(color.startsWith('#') ? color : '#000000', 0.55));
+  return g;
+}
+
+// ---------- сцена ----------
 
 function build() {
-  W = cv.width = innerWidth * devicePixelRatio;
-  H = cv.height = innerHeight * devicePixelRatio;
-  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
-  const w = W / devicePixelRatio, h = H / devicePixelRatio;
+  dpr = Math.min(2, devicePixelRatio || 1);
+  w = innerWidth; h = innerHeight;
+  W = cv.width = w * dpr; H = cv.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
-  stars = Array.from({ length: 140 }, () => ({ x: rnd(0, w), y: rnd(0, h * 0.6), r: rnd(0.4, 1.6), p: rnd(0, 6.3) }));
-  snow = Array.from({ length: 220 }, () => ({ x: rnd(0, w), y: rnd(0, h), r: rnd(0.8, 2.6), v: rnd(12, 42), d: rnd(0, 6.3) }));
+  const cx = w / 2, top = h * 0.155, bot = h * 0.745, hh = bot - top;
+
+  stars = Array.from({ length: 130 }, () => ({
+    x: rnd(0, w), y: rnd(0, h * 0.58), r: rnd(0.5, 1.7), p: rnd(0, 6.3),
+  }));
+
+  snow = Array.from({ length: 230 }, () => ({
+    x: rnd(0, w), y: rnd(0, h), r: rnd(1, 3), v: rnd(10, 40), p: rnd(0, 6.3),
+  }));
+
+  // Гора-холм под ёлкой: гладкие сопки по бокам, дальний план — лес.
   firs = [];
-  for (let i = 0; i < 26; i++) {
+  for (let i = 0; i < 30; i++) {
     const side = i % 2 ? 1 : -1;
-    firs.push({ x: w / 2 + side * rnd(w * 0.16, w * 0.48), base: h * 0.78 + rnd(-8, 14), hh: rnd(40, 110), s: rnd(0.7, 1.3) });
+    firs.push({ x: cx + side * rnd(w * 0.17, w * 0.49), base: h * 0.79 + rnd(-10, 18), hh: rnd(46, 120), dark: rnd(0.5, 1) });
   }
-  windows = [];
-  const cityY = h * 0.66;
-  for (let b = 0; b < 14; b++) {
-    const bw = rnd(26, 64), bh = rnd(34, 110);
-    const bx = (b / 14) * w + rnd(-10, 10);
-    for (let wy = 0; wy < Math.floor(bh / 14); wy++)
-      for (let wx = 0; wx < Math.floor(bw / 13); wx++)
-        if (Math.random() < 0.55)
-          windows.push({ x: bx + 5 + wx * 13, y: cityY - bh + 6 + wy * 14, p: rnd(0, 6.3) });
-    firs.push({ x: bx + bw / 2, base: cityY, hh: bh, bw, city: true });
-  }
-  people = Array.from({ length: 9 }, (_, i) => ({ x: w * 0.12 + i * (w * 0.09) + rnd(-14, 14), y: h * 0.86 + rnd(-4, 6), p: rnd(0, 6.3), h: rnd(15, 22) }));
 
+  // Город: скруглённые корпуса разной высоты с тёплыми окнами-каплями.
+  buildings = [];
+  const cityY = h * 0.665;
+  for (let b = 0; b < 13; b++) {
+    const bw = rnd(34, 70), bh = rnd(46, 130);
+    const bx = (b / 13) * w + rnd(-12, 12) - bw / 2;
+    const bd = { x: bx, y: cityY - bh, w: bw, h: bh, r: rnd(6, 14), tint: rnd(0, 0.25), win: [] };
+    for (let wy = 0; wy < Math.floor((bh - 14) / 16); wy++)
+      for (let wx = 0; wx < Math.floor((bw - 12) / 15); wx++)
+        if (Math.random() < 0.55)
+          bd.win.push({ x: bx + 8 + wx * 15, y: cityY - bh + 10 + wy * 16, p: rnd(0, 6.3) });
+    buildings.push(bd);
+  }
+
+  // Фигуры: капли-«бутоны» с головой и рукой-волной, без острых концов.
+  people = Array.from({ length: 9 }, (_, i) => ({
+    x: w * 0.11 + i * (w * 0.095) + rnd(-16, 16),
+    y: h * 0.865 + rnd(-5, 7),
+    ht: rnd(17, 24), p: rnd(0, 6.3), tint: rnd(0, 0.3),
+  }));
+
+  // Гирлянда: ряды-«висюльки» вдоль скруглённых ярусов ёлки.
   bulbs = [];
-  const cx = w / 2, top = h * 0.16, bot = h * 0.74, rows = 11;
-  for (let r = 0; r < rows; r++) {
-    const y = top + (bot - top) * (r / rows);
-    const half = 8 + (r / rows) * (w * 0.115);
+  for (let r = 0; r < 11; r++) {
+    const y = top + hh * (0.16 + 0.74 * (r / 10));
+    const half = 10 + (r / 10) * (w * 0.118);
     const n = 5 + r;
     for (let i = 0; i <= n; i++) {
-      const x = cx - half + (2 * half * i) / n;
-      bulbs.push({ x, y, big: (r * 7 + i) % 23 === 0, p: rnd(0, 6.3), hue: rnd(-18, 22) });
+      const x = cx - half + (2 * half * i) / n + Math.sin(r * 2.1 + i) * 3;
+      const sag = Math.sin((i / n) * Math.PI) * 7; // провисание «нити»
+      bulbs.push({ x, y: y + sag, big: (r * 7 + i) % 23 === 0, p: rnd(0, 6.3), hue: rnd(-16, 20) });
     }
   }
 }
 addEventListener('resize', build);
 build();
 
-function fir(x, base, hh, fill) {
-  ctx.fillStyle = fill;
-  for (let l = 0; l < 3; l++) {
-    const ly = base - hh * (l * 0.3 + 0.12), lw = (hh * 0.5) * (1 - l * 0.25);
-    ctx.beginPath();
-    ctx.moveTo(x, ly - hh * 0.42);
-    ctx.lineTo(x - lw, ly);
-    ctx.lineTo(x + lw, ly);
-    ctx.closePath(); ctx.fill();
-  }
+// ---------- рисование ----------
+
+/** Мягкий конус-ярус ёлки: боковые стороны — кривые, низ — выпуклая дуга. */
+function drawTier(cx, topY, bottomY, halfW, c1, c2) {
+  const bulge = halfW * 0.16;
+  const body = ctx.createLinearGradient(cx - halfW, topY, cx + halfW, bottomY);
+  body.addColorStop(0, shade(c1, 0.34));   // тень справа-снизу
+  body.addColorStop(0.38, c1);
+  body.addColorStop(1, c2);
+  ctx.beginPath();
+  ctx.moveTo(cx, topY);
+  ctx.quadraticCurveTo(cx - halfW * 0.72, bottomY - (bottomY - topY) * 0.3, cx - halfW, bottomY);
+  ctx.quadraticCurveTo(cx, bottomY + bulge, cx + halfW, bottomY);
+  ctx.quadraticCurveTo(cx + halfW * 0.72, bottomY - (bottomY - topY) * 0.3, cx, topY);
+  ctx.closePath();
+  ctx.shadowColor = 'rgba(0,0,0,0.45)';
+  ctx.shadowBlur = 18;
+  ctx.shadowOffsetY = 8;
+  ctx.fillStyle = body;
+  ctx.fill();
+  ctx.shadowBlur = 0; ctx.shadowOffsetY = 0;
+  // Блик верх-слева: полупрозрачная эллипс-выемка на левом склоне.
+  ctx.save();
+  ctx.clip();
+  const hl = ctx.createRadialGradient(cx - halfW * 0.4, topY + (bottomY - topY) * 0.3, 2, cx - halfW * 0.4, topY + (bottomY - topY) * 0.3, halfW * 0.9);
+  hl.addColorStop(0, 'rgba(255,255,255,0.16)');
+  hl.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = hl;
+  ctx.fillRect(cx - halfW * 2, topY, halfW * 4, bottomY - topY + bulge + 4);
+  ctx.restore();
 }
 
-let last = performance.now();
+/** Скруглённое здание: корпус с градиентом объёма и мягким силуэтом. */
+function drawBuilding(b) {
+  const g = ctx.createLinearGradient(b.x, 0, b.x + b.w, 0);
+  g.addColorStop(0, `hsl(225,30%,${10 + b.tint * 6}%)`);
+  g.addColorStop(0.35, `hsl(225,32%,${17 + b.tint * 6}%)`);
+  g.addColorStop(1, `hsl(225,30%,${8 + b.tint * 4}%)`);
+  ctx.beginPath();
+  ctx.moveTo(b.x + b.r, b.y);
+  ctx.arcTo(b.x + b.w, b.y, b.x + b.w, b.y + b.h, b.r);
+  ctx.arcTo(b.x + b.w, b.y + b.h, b.x, b.y + b.h, 2);
+  ctx.arcTo(b.x, b.y + b.h, b.x, b.y, 2);
+  ctx.arcTo(b.x, b.y, b.x + b.w, b.y, b.r);
+  ctx.closePath();
+  ctx.fillStyle = g;
+  ctx.fill();
+}
+
 function frame(now) {
-  const dt = Math.min(0.05, (now - last) / 1000); last = now;
   const t = now / 1000;
-  const w = W / devicePixelRatio, h = H / devicePixelRatio;
+  const dt = Math.min(0.05, (now - (frame.last || now)) / 1000);
+  frame.last = now;
+  const cx = w / 2, top = h * 0.155, bot = h * 0.745, hh = bot - top;
 
-  // небо
+  // Небо: глубокий градиент с тёплым подсветом у горизонта.
   const sky = ctx.createLinearGradient(0, 0, 0, h);
-  sky.addColorStop(0, '#050a1c'); sky.addColorStop(0.6, '#0b1430'); sky.addColorStop(1, '#101a36');
-  ctx.fillStyle = sky; ctx.fillRect(0, 0, w, h);
+  sky.addColorStop(0, '#050a1c');
+  sky.addColorStop(0.55, '#0b1533');
+  sky.addColorStop(0.78, '#1a2145');
+  sky.addColorStop(1, '#232a52');
+  ctx.fillStyle = sky;
+  ctx.fillRect(0, 0, w, h);
 
-  // звёзды (мерцающие)
+  // Звёзды: мягкие точки с ореолом, мерцающие.
   for (const s of stars) {
-    ctx.globalAlpha = 0.35 + 0.65 * Math.abs(Math.sin(t * 0.7 + s.p));
-    ctx.fillStyle = '#dfe9ff';
-    ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
+    const tw = 0.4 + 0.6 * Math.abs(Math.sin(t * 0.7 + s.p));
+    const g = ctx.createRadialGradient(s.x, s.y, 0, s.x, s.y, s.r * 4);
+    g.addColorStop(0, `rgba(230,238,255,${0.9 * tw})`);
+    g.addColorStop(0.3, `rgba(210,225,255,${0.28 * tw})`);
+    g.addColorStop(1, 'rgba(210,225,255,0)');
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(s.x, s.y, s.r * 4, 0, 7); ctx.fill();
   }
-  ctx.globalAlpha = 1;
 
-  // город на горизонте: тёплые окна
-  for (const f of firs) if (f.city) {
-    ctx.fillStyle = '#0a1124';
-    ctx.fillRect(f.x - f.bw / 2, f.base - f.hh, f.bw, f.hh);
+  // Дальний тёплый горизонт (городская дымка).
+  const haze = ctx.createLinearGradient(0, h * 0.52, 0, h * 0.7);
+  haze.addColorStop(0, 'rgba(255,180,90,0)');
+  haze.addColorStop(1, 'rgba(255,170,95,0.14)');
+  ctx.fillStyle = haze;
+  ctx.fillRect(0, h * 0.52, w, h * 0.18);
+
+  // Город: скруглённые корпуса + тёплые окна.
+  for (const b of buildings) drawBuilding(b);
+  for (const b of buildings) {
+    for (const wd of b.win) {
+      const tw = 0.55 + 0.45 * Math.sin(t * 1.25 + wd.p);
+      const g = ctx.createRadialGradient(wd.x + 3, wd.y + 4, 0.5, wd.x + 3, wd.y + 4, 9);
+      g.addColorStop(0, `rgba(255,214,140,${0.95 * tw})`);
+      g.addColorStop(0.4, `rgba(255,190,110,${0.5 * tw})`);
+      g.addColorStop(1, 'rgba(255,180,100,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(wd.x + 3, wd.y + 4, 9, 0, 7); ctx.fill();
+    }
   }
-  for (const wd of windows) {
-    ctx.globalAlpha = 0.5 + 0.5 * Math.sin(t * 1.3 + wd.p);
-    ctx.fillStyle = '#ffcf7d';
-    ctx.fillRect(wd.x, wd.y, 6, 8);
+
+  // Лес: мягкие «пламенные» силуэты елей (без треугольников).
+  for (const f of firs) {
+    const c = `hsl(170,34%,${7 + f.dark * 5}%)`;
+    ctx.fillStyle = c;
+    ctx.beginPath();
+    const x = f.x, bY = f.base, H2 = f.hh, r0 = H2 * 0.3;
+    ctx.moveTo(x, bY - H2);
+    ctx.bezierCurveTo(x + r0 * 0.5, bY - H2 * 0.66, x + r0 * 1.1, bY - H2 * 0.4, x + r0 * 0.6, bY - H2 * 0.32);
+    ctx.bezierCurveTo(x + r0 * 1.6, bY - H2 * 0.1, x + r0 * 1.5, bY, x, bY);
+    ctx.bezierCurveTo(x - r0 * 1.5, bY, x - r0 * 1.6, bY - H2 * 0.1, x - r0 * 0.6, bY - H2 * 0.32);
+    ctx.bezierCurveTo(x - r0 * 1.1, bY - H2 * 0.4, x - r0 * 0.5, bY - H2 * 0.66, x, bY - H2);
+    ctx.closePath();
+    ctx.fill();
   }
-  ctx.globalAlpha = 1;
 
-  // лес по бокам
-  for (const f of firs) if (!f.city) fir(f.x, f.base, f.hh, '#0c1a26');
-
-  // земля
-  const gnd = ctx.createLinearGradient(0, h * 0.72, 0, h);
-  gnd.addColorStop(0, '#1b2743'); gnd.addColorStop(1, '#263354');
+  // Земля: гладкий снежный холм с градиентом объёма.
+  const gnd = ctx.createLinearGradient(0, h * 0.7, 0, h);
+  gnd.addColorStop(0, '#2c3a63');
+  gnd.addColorStop(0.4, '#344573');
+  gnd.addColorStop(1, '#1d2749');
+  ctx.beginPath();
+  ctx.moveTo(0, h * 0.78);
+  ctx.quadraticCurveTo(w * 0.28, h * 0.715, w * 0.5, h * 0.745);
+  ctx.quadraticCurveTo(w * 0.74, h * 0.775, w, h * 0.75);
+  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
   ctx.fillStyle = gnd;
-  ctx.beginPath(); ctx.moveTo(0, h * 0.76);
-  ctx.quadraticCurveTo(w / 2, h * 0.70, w, h * 0.76);
-  ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.fill();
+  ctx.fill();
+  // Блик на снегу слева.
+  const snowHl = ctx.createRadialGradient(w * 0.3, h * 0.86, 10, w * 0.3, h * 0.86, w * 0.4);
+  snowHl.addColorStop(0, 'rgba(220,232,255,0.14)');
+  snowHl.addColorStop(1, 'rgba(220,232,255,0)');
+  ctx.fillStyle = snowHl;
+  ctx.fillRect(0, h * 0.72, w, h * 0.28);
 
   // ===== ЁЛКА =====
-  const cx = w / 2, top = h * 0.16, bot = h * 0.74, hh = bot - top;
-  // тёплое свечение вокруг всей ёлки (full-tree glow)
-  const glow = ctx.createRadialGradient(cx, top + hh * 0.5, 10, cx, top + hh * 0.5, hh * 0.85);
-  glow.addColorStop(0, 'rgba(255,190,90,0.22)'); glow.addColorStop(1, 'rgba(255,190,90,0)');
-  ctx.fillStyle = glow; ctx.fillRect(0, 0, w, h);
+  // Тёплое свечение всей ёлки (full-tree glow, R4).
+  const glow = ctx.createRadialGradient(cx, top + hh * 0.52, 8, cx, top + hh * 0.52, hh * 0.92);
+  glow.addColorStop(0, 'rgba(255,196,100,0.20)');
+  glow.addColorStop(0.6, 'rgba(255,180,90,0.07)');
+  glow.addColorStop(1, 'rgba(255,180,90,0)');
+  ctx.fillStyle = glow;
+  ctx.fillRect(0, 0, w, h);
 
-  ctx.save();
-  ctx.shadowColor = 'rgba(120,255,170,0.10)';
-  for (let l = 0; l < 5; l++) {
-    const ly = top + hh * (l * 0.19 + 0.10), lw = (hh * 0.44) * (1 - l * 0.17);
-    ctx.fillStyle = l % 2 ? '#0f4a33' : '#0d3f2d';
-    ctx.beginPath();
-    ctx.moveTo(cx, ly - hh * 0.30);
-    ctx.lineTo(cx - lw, ly);
-    ctx.lineTo(cx + lw, ly);
-    ctx.closePath(); ctx.fill();
+  // Ствол: скруглённый, с объёмным градиентом.
+  const trunkW = 15;
+  const tg = ctx.createLinearGradient(cx - trunkW, 0, cx + trunkW, 0);
+  tg.addColorStop(0, '#2a1a10');
+  tg.addColorStop(0.35, '#5b3a22');
+  tg.addColorStop(1, '#33200f');
+  ctx.beginPath();
+  ctx.roundRect ? ctx.roundRect(cx - trunkW, bot - 8, trunkW * 2, 34, 7)
+                : ctx.rect(cx - trunkW, bot - 8, trunkW * 2, 34);
+  ctx.fillStyle = tg;
+  ctx.fill();
+
+  // Ярусы ёлки: снизу вверх, каждый — плавный конус с бликом.
+  const tiers = 5;
+  for (let l = 0; l < tiers; l++) {
+    const f = l / (tiers - 1);
+    const bottomY = lerp(bot - 6, top + hh * 0.14, f);
+    const topY = lerp(bot - 6, top + hh * 0.14, Math.min(1, f + 0.42));
+    const halfW = lerp(w * 0.155, hh * 0.075, f);
+    drawTier(cx, topY, bottomY, halfW,
+      l % 2 ? '#12603f' : '#0f5438',
+      l % 2 ? '#0a3d2a' : '#083524');
   }
-  ctx.restore();
-  ctx.fillStyle = '#3a2415'; ctx.fillRect(cx - 7, bot - 4, 14, 26);
 
-  // гирлянда: всё горит, большие «слитые» лампы
+  // Гирлянда: нить-провис + лампы-сферы с бликом и ореолом.
+  ctx.strokeStyle = 'rgba(255,230,170,0.14)';
+  ctx.lineWidth = 1.2;
+  ctx.beginPath();
+  for (const b of bulbs) ctx.lineTo(b.x, b.y);
+  ctx.stroke();
+
   for (const b of bulbs) {
-    const tw = 0.75 + 0.25 * Math.sin(t * 2.2 + b.p);
-    const r = (b.big ? 6.5 : 2.6) * tw;
-    const col = `hsl(${38 + b.hue},100%,${62 + 12 * tw}%)`;
-    ctx.shadowColor = col; ctx.shadowBlur = b.big ? 26 : 12;
-    ctx.fillStyle = col;
+    const tw = 0.78 + 0.22 * Math.sin(t * 2.1 + b.p);
+    const r = (b.big ? 7.5 : 3.1) * (0.94 + 0.06 * tw);
+    const hue = 36 + b.hue;
+    const col = `hsl(${hue},96%,${58 + 8 * tw}%)`;
+    // Ореол свечения (3 слоя с падающей непрозрачностью).
+    for (const [rr, a] of [[r * 5.5, 0.10], [r * 3.2, 0.16], [r * 1.8, 0.24]]) {
+      const og = ctx.createRadialGradient(b.x, b.y, 0, b.x, b.y, rr);
+      og.addColorStop(0, `hsla(${hue},96%,70%,${a * tw})`);
+      og.addColorStop(1, `hsla(${hue},96%,70%,0)`);
+      ctx.fillStyle = og;
+      ctx.beginPath(); ctx.arc(b.x, b.y, rr, 0, 7); ctx.fill();
+    }
+    // Сфера: радиальный градиент с бликом верх-слева.
+    const g = ctx.createRadialGradient(b.x - r * 0.35, b.y - r * 0.4, r * 0.08, b.x, b.y, r);
+    g.addColorStop(0, 'rgba(255,255,255,0.95)');
+    g.addColorStop(0.3, col);
+    g.addColorStop(1, shade(hue >= 0 ? `hsl(${hue},96%,38%)` : '#aa6611', 0.3));
+    ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(b.x, b.y, r, 0, 7); ctx.fill();
   }
-  ctx.shadowBlur = 0;
 
-  // звезда на максимаем + луч в небо
-  const sx = cx, sy = top - hh * 0.05;
-  const beam = ctx.createLinearGradient(sx, sy, sx, 0);
-  beam.addColorStop(0, 'rgba(255,225,140,0.55)'); beam.addColorStop(1, 'rgba(255,225,140,0)');
+  // Звезда: мягкая десятилучевая форма + пульсирующий ореол + луч в небо.
+  const beam = ctx.createLinearGradient(cx, top, cx, 0);
+  beam.addColorStop(0, 'rgba(255,228,150,0.5)');
+  beam.addColorStop(1, 'rgba(255,228,150,0)');
   ctx.fillStyle = beam;
   ctx.beginPath();
-  ctx.moveTo(sx - 4, sy); ctx.lineTo(sx + 4, sy); ctx.lineTo(sx + 46, 0); ctx.lineTo(sx - 46, 0);
+  ctx.moveTo(cx - 5, top); ctx.lineTo(cx + 5, top);
+  ctx.lineTo(cx + 54, 0); ctx.lineTo(cx - 54, 0);
   ctx.closePath(); ctx.fill();
 
-  const pulse = 1 + 0.12 * Math.sin(t * 3);
-  ctx.shadowColor = '#ffd970'; ctx.shadowBlur = 40 * pulse;
-  ctx.fillStyle = '#ffe9a8';
-  ctx.save(); ctx.translate(sx, sy); ctx.rotate(t * 0.15);
+  const sx = cx, sy = top - hh * 0.045;
+  const pulse = 1 + 0.1 * Math.sin(t * 2.6);
+  const star = ctx.createRadialGradient(sx - 4, sy - 5, 1, sx, sy, 24 * pulse);
+  star.addColorStop(0, '#fffdf2');
+  star.addColorStop(0.4, '#ffe9a0');
+  star.addColorStop(1, '#f5b942');
+  ctx.save();
+  ctx.translate(sx, sy);
+  ctx.rotate(Math.sin(t * 0.4) * 0.06);
   ctx.beginPath();
-  for (let i = 0; i < 10; i++) {
-    const a = (i * Math.PI) / 5, rr = (i % 2 ? 7 : 17) * pulse;
-    ctx.lineTo(Math.cos(a - Math.PI / 2) * rr, Math.sin(a - Math.PI / 2) * rr);
+  for (let i = 0; i < 20; i++) {
+    const a = (i * Math.PI) / 10 - Math.PI / 2;
+    const rr = (i % 2 ? 8 : 18) * pulse;
+    const px = Math.cos(a) * rr, py = Math.sin(a) * rr;
+    i === 0 ? ctx.moveTo(px, py) : ctx.quadraticCurveTo(
+      Math.cos(a - Math.PI / 10) * (rr * 0.62), Math.sin(a - Math.PI / 10) * (rr * 0.62), px, py);
   }
-  ctx.closePath(); ctx.fill(); ctx.restore();
+  ctx.closePath();
+  ctx.shadowColor = '#ffd970';
+  ctx.shadowBlur = 46 * pulse;
+  ctx.fillStyle = star;
+  ctx.fill();
+  ctx.restore();
   ctx.shadowBlur = 0;
 
-  // люди, машущие рукой
+  // Фигуры: капли-«бутоны» со скруглённой головой и волной рукой.
   for (const p of people) {
-    ctx.strokeStyle = '#050a16'; ctx.fillStyle = '#050a16'; ctx.lineWidth = 2.4;
-    ctx.beginPath(); ctx.arc(p.x, p.y - p.h, 3.4, 0, 7); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(p.x, p.y - p.h + 4); ctx.lineTo(p.x, p.y); ctx.stroke();
-    const wa = Math.sin(t * 4 + p.p) * 0.7;
-    ctx.beginPath(); ctx.moveTo(p.x, p.y - p.h + 8);
-    ctx.lineTo(p.x + Math.cos(-1.9 + wa) * 9, p.y - p.h + 8 + Math.sin(-1.9 + wa) * 9); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(p.x, p.y - p.h + 8); ctx.lineTo(p.x - 8, p.y - p.h + 13); ctx.stroke();
+    const bob = Math.sin(t * 1.8 + p.p) * 1.5;
+    const x = p.x, y = p.y + bob, H2 = p.ht;
+    ctx.save();
+    ctx.lineCap = 'round';
+    // Тело-капля с объёмным градиентом.
+    const bg = ctx.createLinearGradient(x - 6, 0, x + 6, 0);
+    bg.addColorStop(0, `hsl(230,24%,${16 + p.tint * 8}%)`);
+    bg.addColorStop(0.4, `hsl(230,28%,${28 + p.tint * 8}%)`);
+    bg.addColorStop(1, `hsl(230,22%,${13 + p.tint * 6}%)`);
+    ctx.fillStyle = bg;
+    ctx.beginPath();
+    ctx.moveTo(x - 5.5, y);
+    ctx.quadraticCurveTo(x - 7, y - H2 * 0.6, x - 3.4, y - H2 * 0.78);
+    ctx.quadraticCurveTo(x, y - H2 * 0.95, x + 3.4, y - H2 * 0.78);
+    ctx.quadraticCurveTo(x + 7, y - H2 * 0.6, x + 5.5, y);
+    ctx.quadraticCurveTo(x, y + 2.5, x - 5.5, y);
+    ctx.closePath();
+    ctx.fill();
+    // Голова: сфера с бликом.
+    const hy = y - H2 * 0.95;
+    const hg = ctx.createRadialGradient(x - 1.6, hy - 1.8, 0.4, x, hy, 4.6);
+    hg.addColorStop(0, '#fff2dd');
+    hg.addColorStop(0.45, `hsl(28,45%,${72 + p.tint * 10}%)`);
+    hg.addColorStop(1, `hsl(24,38%,${44 + p.tint * 8}%)`);
+    ctx.fillStyle = hg;
+    ctx.beginPath(); ctx.arc(x, hy, 4.6, 0, 7); ctx.fill();
+    // Рука-волна: скруглённая линия (lineCap round), без острых концов.
+    const wa = Math.sin(t * 4 + p.p) * 0.65;
+    ctx.strokeStyle = `hsl(230,26%,${30 + p.tint * 8}%)`;
+    ctx.lineWidth = 3.4;
+    ctx.beginPath();
+    ctx.moveTo(x + 2, y - H2 * 0.62);
+    ctx.lineTo(x + 2 + Math.cos(-2.1 + wa) * 10, y - H2 * 0.62 + Math.sin(-2.1 + wa) * 10);
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.moveTo(x - 2, y - H2 * 0.62);
+    ctx.lineTo(x - 8.5, y - H2 * 0.5);
+    ctx.stroke();
+    ctx.restore();
   }
 
-  // снег
-  ctx.fillStyle = 'rgba(255,255,255,0.85)';
+  // Снег: мягкие капли с градиентом (объёмные, не квадратные точки).
   for (const s of snow) {
-    s.y += s.v * dt; s.x += Math.sin(t + s.d) * 12 * dt;
-    if (s.y > h) { s.y = -4; s.x = rnd(0, w); }
+    s.y += s.v * dt;
+    s.x += Math.sin(t * 0.8 + s.p) * 14 * dt;
+    if (s.y > h + 4) { s.y = -6; s.x = rnd(0, w); }
+    const g = ctx.createRadialGradient(s.x - s.r * 0.3, s.y - s.r * 0.3, 0, s.x, s.y, s.r);
+    g.addColorStop(0, 'rgba(255,255,255,0.95)');
+    g.addColorStop(0.6, 'rgba(235,244,255,0.75)');
+    g.addColorStop(1, 'rgba(220,232,255,0.35)');
+    ctx.fillStyle = g;
     ctx.beginPath(); ctx.arc(s.x, s.y, s.r, 0, 7); ctx.fill();
   }
 

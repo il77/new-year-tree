@@ -52,6 +52,11 @@ npm run build
 `(ctx, width, height, t)` и порядок отрисовки кадра (фон → искра →
 слои объектов).
 
+Визуальный стиль — объёмные гладкие объекты (скруглённые силуэты,
+градиенты, блики, мягкие свечения; без плоских квадратов и острых
+треугольников): [docs/style.md](docs/style.md), концепт-мок —
+[docs/design-final.html](docs/design-final.html).
+
 ## Структура
 
 - `index.html` — страница-точка входа: full-screen canvas, подпись «зажги», тёмный фон
@@ -60,6 +65,8 @@ npm run build
 - `src/contract.js` — контракт рендера: `createSceneContract()` (фабрика для тестов) и общий `sceneContract` для страницы
 - `src/main.js` — `bootstrap(doc, win, contract)`: размер canvas, ресайз, деградация без 2D; в браузере выполняется сам
 - `docs/contract.md` — документ контракта для эпиков 2–4
+- `docs/style.md` — визуальный стиль: объёмные гладкие объекты (рецепты рендера)
+- `docs/design-final.html` — концепт-мок финального состояния ёлки
 - `test/spark.test.js` — тесты рендера искры (`node:test`)
 - `test/matrix.test.js` — тесты матрицы I/O: первый рендер, ресайз, нет canvas 2D, структура страницы
 - `test/contract.test.js` — тесты контракта: регистрация, порядок слоёв, невалидные аргументы
