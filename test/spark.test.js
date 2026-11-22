@@ -9,36 +9,7 @@ import {
   RAY_COUNT,
   RAY_COLOR,
 } from '../src/spark.js';
-
-/**
- * Мок-2D-контекст: фиксирует вызовы отрисовки без jsdom/canvas-зависимостей.
- */
-function createMockCtx() {
-  const calls = [];
-  const record = (name, ...args) => calls.push({ name, args });
-  return {
-    calls,
-    beginPath: (...a) => record('beginPath', ...a),
-    arc: (...a) => record('arc', ...a),
-    fill: (...a) => record('fill', ...a),
-    moveTo: (...a) => record('moveTo', ...a),
-    lineTo: (...a) => record('lineTo', ...a),
-    stroke: (...a) => record('stroke', ...a),
-    set fillStyle(value) {
-      record('fillStyle', value);
-    },
-    set strokeStyle(value) {
-      record('strokeStyle', value);
-    },
-    set lineWidth(value) {
-      record('lineWidth', value);
-    },
-  };
-}
-
-function callsNamed(ctx, name) {
-  return ctx.calls.filter((call) => call.name === name);
-}
+import { createMockCtx, callsNamed } from '../scripts/mock-ctx.js';
 
 test('drawSpark рисует свечение: слои-круги и заливки', () => {
   const ctx = createMockCtx();

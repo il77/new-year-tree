@@ -77,13 +77,15 @@ export function renderFrame(ctx, width, height, t = 0, contract = null, ritual =
     ctx.translate(-width / 2, -height / 2);
   }
 
+  // Горизонталь искры — одна и та же в статичном кадре и в ритуале
+  // (sparkAt), по вертикали ритуал берёт позицию из своего прогресса.
+  const sparkPoint = sparkAt(width, height);
   if (ritual) {
     // Ритуал: позиция/непрозрачность искры — чистый прогресс по t.
     const { spark } = ritual.progress(t);
-    drawSpark(ctx, width * SPARK_POSITION.xRatio, spark.yRatio * height, t, spark.alpha);
+    drawSpark(ctx, sparkPoint.x, spark.yRatio * height, t, spark.alpha);
   } else {
-    const { x, y } = sparkAt(width, height);
-    drawSpark(ctx, x, y, t);
+    drawSpark(ctx, sparkPoint.x, sparkPoint.y, t);
   }
   if (contract) {
     // Объекты контракта — строго после фона и искры, порядок — по слоям

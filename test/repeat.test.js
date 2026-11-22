@@ -21,72 +21,7 @@ import {
   PHASE_REVEALED,
 } from '../src/ritual.js';
 import { registerWorld, WORLD_COLORS } from '../src/world.js';
-
-/** Мок-2D-контекст: фиксирует вызовы отрисовки (как в test/ritual.test.js).
- *  save/restore/translate/rotate/scale — методы трансформации камеры
- *  (story 1.5); добавлены механически, утверждения не менялись. */
-function createMockCtx() {
-  const calls = [];
-  const record = (name, ...args) => calls.push({ name, args });
-  let globalAlpha = 1;
-  return {
-    calls,
-    beginPath: (...a) => record('beginPath', ...a),
-    arc: (...a) => record('arc', ...a),
-    arcTo: (...a) => record('arcTo', ...a),
-    fill: (...a) => record('fill', ...a),
-    fillRect: (...a) => record('fillRect', ...a),
-    moveTo: (...a) => record('moveTo', ...a),
-    lineTo: (...a) => record('lineTo', ...a),
-    quadraticCurveTo: (...a) => record('quadraticCurveTo', ...a),
-    closePath: (...a) => record('closePath', ...a),
-    stroke: (...a) => record('stroke', ...a),
-    save: (...a) => record('save', ...a),
-    restore: (...a) => record('restore', ...a),
-    translate: (...a) => record('translate', ...a),
-    rotate: (...a) => record('rotate', ...a),
-    scale: (...a) => record('scale', ...a),
-    createLinearGradient: (...a) => {
-      record('createLinearGradient', ...a);
-      return { addColorStop: (...s) => record('addColorStop', ...s) };
-    },
-    createRadialGradient: (...a) => {
-      record('createRadialGradient', ...a);
-      return { addColorStop: (...s) => record('addColorStop', ...s) };
-    },
-    get globalAlpha() {
-      return globalAlpha;
-    },
-    set globalAlpha(value) {
-      record('globalAlpha', value);
-      globalAlpha = value;
-    },
-    set fillStyle(value) {
-      record('fillStyle', value);
-    },
-    set strokeStyle(value) {
-      record('strokeStyle', value);
-    },
-    set lineWidth(value) {
-      record('lineWidth', value);
-    },
-  };
-}
-
-function callsNamed(ctx, name) {
-  return ctx.calls.filter((call) => call.name === name);
-}
-
-/** Вызовы кадра начиная с fromIndex (история ctx накапливается). */
-function frameCalls(ctx, fromIndex) {
-  return ctx.calls.slice(fromIndex);
-}
-
-/** Крупные круги 10–30 px — только свечение искры (мир рисует мелкие
- *  снежинки и крупную тень-эллипс ёлки радиуса > 100). */
-function sparkArcsIn(calls) {
-  return calls.filter((c) => c.name === 'arc' && c.args[2] > 10 && c.args[2] < 30);
-}
+import { createMockCtx, callsNamed, frameCalls, sparkArcsIn } from '../scripts/mock-ctx.js';
 
 /**
  * localStorage-стаб с живым значением: setItem реально меняет getItem —

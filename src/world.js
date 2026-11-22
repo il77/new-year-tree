@@ -8,6 +8,7 @@
 // в src/animation.js, здесь только применяются к геометрии.
 
 import { flakeState, twinkleAt } from './animation.js';
+import { SPARK_FALL_TO_RATIO } from './ritual.js';
 
 /** Слой снега: самый низкий — рисуется первым, позади леса и ёлки. */
 export const LAYER_SNOW = 5;
@@ -39,8 +40,6 @@ function hash01(n) {
   const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
   return x - Math.floor(x);
 }
-
-import { SPARK_FALL_TO_RATIO } from './ritual.js';
 
 /**
  * Кромка снежного поля (доля высоты) — туда же падает искра.
@@ -152,6 +151,26 @@ function roundRectPath(ctx, x, y, w, h, r) {
 }
 
 /**
+ * Мягкий блик верх-слева (R12): радиальный градиент от пика к прозрачному
+ * краю. Вынесен из трёх рецептов (снег, лес, ёлка) — последовательность
+ * вызовов ctx и их аргументы остаются прежними.
+ *
+ * @param {CanvasRenderingContext2D} ctx 2D-контекст (в тесте — мок)
+ * @param {number} x центр блика
+ * @param {number} y центр блика
+ * @param {number} radius радиус растворяющегося края
+ * @param {number} peakAlpha непрозрачность в центре (0..1)
+ * @returns {void}
+ */
+function paintGloss(ctx, x, y, radius, peakAlpha) {
+  const gloss = ctx.createRadialGradient(x, y, 0, x, y, radius);
+  gloss.addColorStop(0, `rgba(255, 255, 255, ${peakAlpha})`);
+  gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
+  ctx.fillStyle = gloss;
+  ctx.fill();
+}
+
+/**
  * Снег: снежное поле с мягкой волнистой кромкой (градиент + блик верх-слева)
  * и детерминированные снежинки-капли со стаггером проявления.
  *
@@ -187,18 +206,7 @@ export function drawSnow(ctx, width, height, alpha, t) {
   ctx.fill();
 
   // Блик верх-слева: тот же путь, мягкий радиальный свет вдоль кромки.
-  const gloss = ctx.createRadialGradient(
-    w * 0.28,
-    y0 + h * 0.02,
-    0,
-    w * 0.28,
-    y0 + h * 0.02,
-    w * 0.42,
-  );
-  gloss.addColorStop(0, 'rgba(255, 255, 255, 0.32)');
-  gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
-  ctx.fillStyle = gloss;
-  ctx.fill();
+  paintGloss(ctx, w * 0.28, y0 + h * 0.02, w * 0.42, 0.32);
 
   // Снежинки: мягкие капли без жёсткого края, волной по стаггеру;
   // падают/качаются/мерцают по чистому flakeState(t) — живая сцена 1.5.
@@ -208,14 +216,13 @@ export function drawSnow(ctx, width, height, alpha, t) {
     const state = flakeState(flake, t);
     const x = state.xRatio * w;
     const y = state.yRatio * h;
-    const r = flake.r;
     ctx.globalAlpha = alpha * flakeAlpha * state.alpha;
-    const drop = ctx.createRadialGradient(x, y, 0, x, y, r * 1.5);
+    const drop = ctx.createRadialGradient(x, y, 0, x, y, flake.r * 1.5);
     drop.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
     drop.addColorStop(0.55, 'rgba(233, 242, 255, 0.55)');
     drop.addColorStop(1, 'rgba(233, 242, 255, 0)');
     ctx.beginPath();
-    ctx.arc(x, y, r * 1.5, 0, Math.PI * 2);
+    ctx.arc(x, y, flake.r * 1.5, 0, Math.PI * 2);
     ctx.fillStyle = drop;
     ctx.fill();
   }
@@ -286,18 +293,13 @@ export function drawForest(ctx, width, height, alpha, t) {
 
       // Блик верх-слева (R12, docs/style.md п.2): тот же путь, мягкий
       // радиальный свет — дальний план не исключение из правила света.
-      const gloss = ctx.createRadialGradient(
-        cx - tier.hw * 0.4,
-        tier.topY + (tier.bottomY - tier.topY) * 0.3,
-        0,
+      paintGloss(
+        ctx,
         cx - tier.hw * 0.4,
         tier.topY + (tier.bottomY - tier.topY) * 0.3,
         tier.hw * 1.1,
+        0.14,
       );
-      gloss.addColorStop(0, 'rgba(255, 255, 255, 0.14)');
-      gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
-      ctx.fillStyle = gloss;
-      ctx.fill();
     }
   }
 
@@ -386,18 +388,13 @@ export function drawTree(ctx, width, height, alpha, t) {
     ctx.fill();
 
     // Блик верх-слева: тот же путь, мягкий радиальный свет слева.
-    const gloss = ctx.createRadialGradient(
-      cx - tier.hw * 0.4,
-      topY + (bottomY - topY) * 0.35,
-      0,
+    paintGloss(
+      ctx,
       cx - tier.hw * 0.4,
       topY + (bottomY - topY) * 0.35,
       tier.hw * 1.15,
+      0.3,
     );
-    gloss.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
-    gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
-    ctx.fillStyle = gloss;
-    ctx.fill();
   }
 
   // Огоньки ёлки (живая сцена, R11: «огоньки мерцают»): ореол-градиент +

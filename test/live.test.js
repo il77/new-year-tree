@@ -29,62 +29,10 @@ import {
   PHASE_REVEALED,
 } from '../src/ritual.js';
 import { registerWorld, drawTree, FLAKES, TREE_LIGHTS, WORLD_COLORS } from '../src/world.js';
+import { createMockCtx, callsNamed } from '../scripts/mock-ctx.js';
 
 /** Методы трансформации камеры — проверяются по отдельности. */
 const TRANSFORM_CALLS = ['save', 'translate', 'rotate', 'scale', 'restore'];
-
-/** Мок-2D-контекст: фиксирует вызовы, включая трансформации и globalAlpha. */
-function createMockCtx() {
-  const calls = [];
-  const record = (name, ...args) => calls.push({ name, args });
-  let globalAlpha = 1;
-  return {
-    calls,
-    beginPath: (...a) => record('beginPath', ...a),
-    arc: (...a) => record('arc', ...a),
-    arcTo: (...a) => record('arcTo', ...a),
-    fill: (...a) => record('fill', ...a),
-    fillRect: (...a) => record('fillRect', ...a),
-    moveTo: (...a) => record('moveTo', ...a),
-    lineTo: (...a) => record('lineTo', ...a),
-    quadraticCurveTo: (...a) => record('quadraticCurveTo', ...a),
-    closePath: (...a) => record('closePath', ...a),
-    stroke: (...a) => record('stroke', ...a),
-    save: (...a) => record('save', ...a),
-    restore: (...a) => record('restore', ...a),
-    translate: (...a) => record('translate', ...a),
-    rotate: (...a) => record('rotate', ...a),
-    scale: (...a) => record('scale', ...a),
-    createLinearGradient: (...a) => {
-      record('createLinearGradient', ...a);
-      return { addColorStop: (...s) => record('addColorStop', ...s) };
-    },
-    createRadialGradient: (...a) => {
-      record('createRadialGradient', ...a);
-      return { addColorStop: (...s) => record('addColorStop', ...s) };
-    },
-    get globalAlpha() {
-      return globalAlpha;
-    },
-    set globalAlpha(value) {
-      record('globalAlpha', value);
-      globalAlpha = value;
-    },
-    set fillStyle(value) {
-      record('fillStyle', value);
-    },
-    set strokeStyle(value) {
-      record('strokeStyle', value);
-    },
-    set lineWidth(value) {
-      record('lineWidth', value);
-    },
-  };
-}
-
-function callsNamed(ctx, name) {
-  return ctx.calls.filter((call) => call.name === name);
-}
 
 /** localStorage-стаб с живым значением (образец — test/repeat.test.js). */
 function createSharedStorage(initial = null) {

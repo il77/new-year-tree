@@ -7,35 +7,7 @@ import { readFile } from 'node:fs/promises';
 
 import { bootstrap } from '../src/main.js';
 import { sparkAt, BACKGROUND } from '../src/scene.js';
-
-/** Мок-2D-контекст: фиксирует вызовы отрисовки (как в test/spark.test.js). */
-function createMockCtx() {
-  const calls = [];
-  const record = (name, ...args) => calls.push({ name, args });
-  return {
-    calls,
-    beginPath: (...a) => record('beginPath', ...a),
-    arc: (...a) => record('arc', ...a),
-    fill: (...a) => record('fill', ...a),
-    fillRect: (...a) => record('fillRect', ...a),
-    moveTo: (...a) => record('moveTo', ...a),
-    lineTo: (...a) => record('lineTo', ...a),
-    stroke: (...a) => record('stroke', ...a),
-    set fillStyle(value) {
-      record('fillStyle', value);
-    },
-    set strokeStyle(value) {
-      record('strokeStyle', value);
-    },
-    set lineWidth(value) {
-      record('lineWidth', value);
-    },
-  };
-}
-
-function callsNamed(ctx, name) {
-  return ctx.calls.filter((call) => call.name === name);
-}
+import { createMockCtx, callsNamed } from '../scripts/mock-ctx.js';
 
 /** Стаб страницы: элементы index.html + окно с ресайз-слушателем. */
 function createHarness({ hasCanvas2D = true, width = 1280, height = 800 } = {}) {
