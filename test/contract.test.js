@@ -10,7 +10,10 @@ import { renderFrame, BACKGROUND } from '../src/scene.js';
 import { createSceneContract, sceneContract, DEFAULT_LAYER } from '../src/contract.js';
 import { GLOW_LAYERS } from '../src/spark.js';
 
-/** Мок-2D-контекст: фиксирует вызовы отрисовки (образец — test/spark.test.js). */
+/** Мок-2D-контекст: фиксирует вызовы отрисовки (образец — test/spark.test.js).
+ *  save/restore/translate/rotate/scale — методы трансформации камеры
+ *  (story 1.5): кадр с t > 0 их вызывает; рекордеры добавлены механически,
+ *  утверждения тестов не менялись. */
 function createMockCtx() {
   const calls = [];
   const record = (name, ...args) => calls.push({ name, args });
@@ -23,6 +26,11 @@ function createMockCtx() {
     moveTo: (...a) => record('moveTo', ...a),
     lineTo: (...a) => record('lineTo', ...a),
     stroke: (...a) => record('stroke', ...a),
+    save: (...a) => record('save', ...a),
+    restore: (...a) => record('restore', ...a),
+    translate: (...a) => record('translate', ...a),
+    rotate: (...a) => record('rotate', ...a),
+    scale: (...a) => record('scale', ...a),
     set fillStyle(value) {
       record('fillStyle', value);
     },

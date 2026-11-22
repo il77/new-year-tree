@@ -3,6 +3,11 @@
 // верх-слева, мягкие тени, никаких fillRect и острых треугольников.
 // Регистрация — через контракт (docs/contract.md), слоями: снег ниже леса,
 // лес ниже ёлки — чтобы гирлянда epic-garland (слой 20) легла поверх.
+// Живая сцена (story 1.5): движение чистое и детерминированное по t —
+// падение/качка/мерцание снежинок и мерцающие огоньки ёлки считаются
+// в src/animation.js, здесь только применяются к геометрии.
+
+import { flakeState, twinkleAt } from './animation.js';
 
 /** Слой снега: самый низкий — рисуется первым, позади леса и ёлки. */
 export const LAYER_SNOW = 5;
@@ -58,6 +63,39 @@ export const FLAKES = Array.from({ length: 34 }, (_, i) => ({
   r: 1.2 + 2.4 * hash01(i * 3 + 7),
   // Стаггер: снежинки проявляются не разом, а волной внутри своего слоя.
   delay: 0.45 * hash01(i * 5 + 13),
+  // Живая сцена (story 1.5): параметры движения — тоже из hash01, поэтому
+  // «рассып» одинаков в каждом прогоне, а траектории индивидуальны.
+  // fallPeriod — время прохождения полосы SNOW_BAND (24–54 с: мягкий снег,
+  // не метель), sway*/twinkle* — боковая качка и мерцание (см. flakeState).
+  fallPeriod: 24000 + 30000 * hash01(i * 11 + 3),
+  swayAmp: 0.006 + 0.008 * hash01(i * 13 + 5),
+  swayPeriod: 5200 + 4200 * hash01(i * 17 + 9),
+  swayPhase: Math.PI * 2 * hash01(i * 19 + 11),
+  twinklePeriod: 3400 + 3600 * hash01(i * 23 + 15),
+  twinklePhase: Math.PI * 2 * hash01(i * 29 + 17),
+}));
+
+/**
+ * Декоративные огоньки ёлки (R11: «огоньки мерцают») — рисуются в слое
+ * ёлки (10), под будущей общей гирляндой (слой 20, epic-garland). Позиции
+ * и тайминги — из hash01: детерминированы, фазы разные (не мигают в унисон).
+ * Радиус ядра ≤ 2.3 px, ореол = ядро × 4 ≤ 10 px — осознанный предел:
+ * старые тесты распознают свечение искры фильтром 10 < r < 30, огоньки
+ * не должны маскировать проверку «искры в готовом мире нет».
+ */
+export const TREE_LIGHTS = Array.from({ length: 10 }, (_, i) => ({
+  /** Ярус ёлки (0 — нижний, см. tiers в drawTree). */
+  tier: i % 4,
+  /** Поперёк яруса: −0.5..0.5 (преобразуется в смещение внутри конуса). */
+  across: hash01(i * 3 + 21) - 0.5,
+  /** Вниз по ярусу: 0.25..0.75 (не у самой кромки и не у острия). */
+  down: 0.25 + 0.5 * hash01(i * 5 + 29),
+  /** Радиус ядра, px (ореол — вчетверо больше, ≤ 10 px). */
+  r: 1.3 + 1.0 * hash01(i * 7 + 31),
+  /** Период мерцания, мс (2.6–6.8 с — дыхание, не мигание). */
+  period: 2600 + 4200 * hash01(i * 11 + 37),
+  /** Фаза мерцания, радианы. */
+  phase: Math.PI * 2 * hash01(i * 13 + 41),
 }));
 
 /**
@@ -126,7 +164,6 @@ function roundRectPath(ctx, x, y, w, h, r) {
  */
 export function drawSnow(ctx, width, height, alpha, t) {
   if (alpha <= 0) return;
-  void t; // анимация падения снега — story 1.5
   const w = width;
   const h = height;
   const y0 = h * SNOW_TOP_RATIO;
@@ -163,14 +200,16 @@ export function drawSnow(ctx, width, height, alpha, t) {
   ctx.fillStyle = gloss;
   ctx.fill();
 
-  // Снежинки: мягкие капли без жёсткого края, волной по стаггеру.
+  // Снежинки: мягкие капли без жёсткого края, волной по стаггеру;
+  // падают/качаются/мерцают по чистому flakeState(t) — живая сцена 1.5.
   for (const flake of FLAKES) {
     const flakeAlpha = Math.min(1, Math.max(0, (alpha - flake.delay) * 3));
     if (flakeAlpha <= 0) continue;
-    const x = flake.xRatio * w;
-    const y = flake.yRatio * h;
+    const state = flakeState(flake, t);
+    const x = state.xRatio * w;
+    const y = state.yRatio * h;
     const r = flake.r;
-    ctx.globalAlpha = alpha * flakeAlpha;
+    ctx.globalAlpha = alpha * flakeAlpha * state.alpha;
     const drop = ctx.createRadialGradient(x, y, 0, x, y, r * 1.5);
     drop.addColorStop(0, 'rgba(255, 255, 255, 0.95)');
     drop.addColorStop(0.55, 'rgba(233, 242, 255, 0.55)');
@@ -197,6 +236,8 @@ export function drawSnow(ctx, width, height, alpha, t) {
  */
 export function drawForest(ctx, width, height, alpha, t) {
   if (alpha <= 0) return;
+  // Отдельной анимации у леса нет: силуэт дальнего плана живёт общей
+  // покачиванием камеры (src/animation.js, story 1.5) — t нужен контракту.
   void t;
   const w = width;
   const h = height;
@@ -278,18 +319,18 @@ export function drawForest(ctx, width, height, alpha, t) {
 
 /**
  * Ёлка: бревно-скруглёнка + четыре яруса-подола с вертикальным градиентом,
- * бликом верх-слева и мягкой тенью-пятном на снегу.
+ * бликом верх-слева и мягкой тенью-пятном на снегу; поверх ярусов —
+ * мерцающие огоньки (живая сцена, story 1.5).
  *
  * @param {CanvasRenderingContext2D} ctx 2D-контекст (в тесте — мок)
  * @param {number} width ширина кадра
  * @param {number} height высота кадра
  * @param {number} alpha непрозрачность слоя 0..1
- * @param {number} t время кадра в مс
+ * @param {number} t время кадра в мс — мерцание огоньков (чистое по t)
  * @returns {void}
  */
 export function drawTree(ctx, width, height, alpha, t) {
   if (alpha <= 0) return;
-  void t;
   const w = width;
   const h = height;
   const cx = w / 2;
@@ -356,6 +397,48 @@ export function drawTree(ctx, width, height, alpha, t) {
     gloss.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
     gloss.addColorStop(1, 'rgba(255, 255, 255, 0)');
     ctx.fillStyle = gloss;
+    ctx.fill();
+  }
+
+  // Огоньки ёлки (живая сцена, R11: «огоньки мерцают»): ореол-градиент +
+  // ядро по рецепту style.md. Мерцание — чистое twinkleAt(t); альфа в
+  // [0.35, 0.95] — огонёк не гаснет и не мигает стробоскопом (R10).
+  for (const light of TREE_LIGHTS) {
+    const tier = tiers[light.tier];
+    const topY = tier.topY + rise;
+    const bottomY = tier.bottomY + rise;
+    const ly = topY + (bottomY - topY) * light.down;
+    // Конус сужается кверху: ширина в точке down ≈ hw·down; запас 0.8
+    // держит огонёк внутри силуэта независимо от кривых Безье подола.
+    const spread = tier.hw * light.down * 0.8;
+    const lx = cx + light.across * 2 * spread;
+    ctx.globalAlpha = alpha * (0.35 + 0.6 * twinkleAt(t, light.period, light.phase));
+
+    // Ореол: мягкий тёплый свет, край растворяется (без обводок).
+    const haloR = light.r * 4;
+    const halo = ctx.createRadialGradient(lx, ly, 0, lx, ly, haloR);
+    halo.addColorStop(0, 'rgba(255, 227, 156, 0.85)');
+    halo.addColorStop(0.45, 'rgba(255, 196, 96, 0.30)');
+    halo.addColorStop(1, 'rgba(255, 180, 70, 0)');
+    ctx.beginPath();
+    ctx.arc(lx, ly, haloR, 0, Math.PI * 2);
+    ctx.fillStyle = halo;
+    ctx.fill();
+
+    // Ядро: тёплая точка с бликом верх-слева (свет один на всю сцену).
+    const core = ctx.createRadialGradient(
+      lx - light.r * 0.3,
+      ly - light.r * 0.35,
+      light.r * 0.1,
+      lx,
+      ly,
+      light.r,
+    );
+    core.addColorStop(0, '#fff7e2');
+    core.addColorStop(1, 'rgba(255, 200, 120, 0.95)');
+    ctx.beginPath();
+    ctx.arc(lx, ly, light.r, 0, Math.PI * 2);
+    ctx.fillStyle = core;
     ctx.fill();
   }
 

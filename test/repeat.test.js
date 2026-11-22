@@ -1,7 +1,9 @@
 // Тесты матрицы I/O story 1.4 «Повторный вход без преград» (см.
 // story-repeat-entry-plan.md): флаг "1" → готовый мир с первого кадра,
-// касания при revealed — полный no-op, никаких циклов и лишних кадров,
-// деградации и синхронная проверка подписи в index.html.
+// касания при revealed — полный no-op, ни лишних циклов, ни лишних кадров
+// (с story 1.5 цикл живой сцены существует — ровно один, и события его
+// не удваивают: очередь сравнивается до/после), деградации и синхронная
+// проверка подписи в index.html.
 // Без зависимостей: node:test + ручные стабы document/window/localStorage/rAF
 // и мок-2D-контекст (образцы — test/ritual.test.js, test/matrix.test.js).
 
@@ -20,7 +22,9 @@ import {
 } from '../src/ritual.js';
 import { registerWorld, WORLD_COLORS } from '../src/world.js';
 
-/** Мок-2D-контекст: фиксирует вызовы отрисовки (как в test/ritual.test.js). */
+/** Мок-2D-контекст: фиксирует вызовы отрисовки (как в test/ritual.test.js).
+ *  save/restore/translate/rotate/scale — методы трансформации камеры
+ *  (story 1.5); добавлены механически, утверждения не менялись. */
 function createMockCtx() {
   const calls = [];
   const record = (name, ...args) => calls.push({ name, args });
@@ -37,6 +41,11 @@ function createMockCtx() {
     quadraticCurveTo: (...a) => record('quadraticCurveTo', ...a),
     closePath: (...a) => record('closePath', ...a),
     stroke: (...a) => record('stroke', ...a),
+    save: (...a) => record('save', ...a),
+    restore: (...a) => record('restore', ...a),
+    translate: (...a) => record('translate', ...a),
+    rotate: (...a) => record('rotate', ...a),
+    scale: (...a) => record('scale', ...a),
     createLinearGradient: (...a) => {
       record('createLinearGradient', ...a);
       return { addColorStop: (...s) => record('addColorStop', ...s) };
@@ -214,13 +223,16 @@ test('repeat: два открытия — первый вход ставит ф�
   assert.equal(page2.ritual.phase, PHASE_REVEALED, 'revealed с первого кадра, без касания');
   assert.equal(h2.elements.caption.hidden, true, 'подпись «зажги» не показывается');
   assert.notEqual(h2.elements.scene.style.cursor, 'pointer', 'нет ловушки-курсора');
-  assert.equal(h2.rafQueue.length, 0, 'rAF-цикл не запускался');
+  // Семантика 1.4 сохранена: цикл порождает bootstrap живой сцены (1.5) —
+  // ровно ОДИН; касания/resize ниже проверяют, что не больше одного.
+  const queueAfterStart = h2.rafQueue.length;
+  assert.equal(queueAfterStart, 1, 'ровно один цикл живой сцены с bootstrap');
   assert.equal(storage.writes.length, 1, 'флаг не перезаписывается повторно');
 
   // Мир синхронно в кадре (без ожидания времени), искры в готовом мире нет.
   assert.ok(
     callsNamed(h2.ctx, 'createLinearGradient').length > 0,
-    'мир нарисован сразу, без цикла и действий',
+    'мир нарисован сразу, без ожидания цикла',
   );
   assert.ok(
     callsNamed(h2.ctx, 'addColorStop').some(
@@ -232,15 +244,16 @@ test('repeat: два открытия — первый вход ставит ф�
   assert.equal(h2.elements.fallback.hidden, true, 'заглушка не показана');
 
   // Касание любым жестом при revealed — полный no-op (см. отдельный тест
-  // на счёт вызовов ctx; здесь — состояние страницы).
+  // на счёт вызовов ctx; здесь — состояние страницы и цикла).
   for (const type of ['pointerdown', 'touchstart', 'mousedown']) {
     h2.sceneListeners[type]();
     assert.equal(page2.ritual.phase, PHASE_REVEALED, `${type}: фаза не изменилась`);
-    assert.equal(h2.rafQueue.length, 0, `${type}: цикл не запущен`);
+    assert.equal(h2.rafQueue.length, queueAfterStart, `${type}: касания не добавили кадров — цикл один`);
     assert.equal(storage.writes.length, 1, `${type}: флаг не перезаписан`);
   }
 
-  // Resize с Event-аргументом: кадр с миром, без искры и без цикла.
+  // Resize с Event-аргументом: кадр с миром, без искры; цикл не
+  // перезапускается и не удваивается.
   const mark = h2.ctx.calls.length;
   h2.winListeners.resize({ type: 'resize' });
   const after = frameCalls(h2.ctx, mark);
@@ -253,7 +266,7 @@ test('repeat: два открытия — первый вход ставит ф�
     'мир перерисован на новый размер',
   );
   assert.equal(sparkArcsIn(after).length, 0, 'искры нет и после resize');
-  assert.equal(h2.rafQueue.length, 0, 'resize не планирует цикл');
+  assert.equal(h2.rafQueue.length, queueAfterStart, 'resize не планирует лишних кадров');
   assert.equal(storage.writes.length, 1, 'флаг по-прежнему один');
 });
 
@@ -266,6 +279,10 @@ test('repeat: касание/клик/тап при revealed — полный no
     const contract = createSceneContract();
     const { ritual } = bootstrap(h.doc, h.win, contract);
     attachWorld(contract, ritual);
+    // Цикл живой сцены (1.5) bootstrap уже запустил — ровно один;
+    // суть проверки 1.4 не меняется: касание не добавляет кадров.
+    const queueBefore = h.rafQueue.length;
+    assert.equal(queueBefore, 1, 'цикл живой сцены запущен с bootstrap');
 
     const mark = h.ctx.calls.length;
     h.sceneListeners[type]();
@@ -277,7 +294,7 @@ test('repeat: касание/клик/тап при revealed — полный no
     );
     assert.equal(ritual.phase, PHASE_REVEALED, `${type}: фаза revealed`);
     assert.equal(ritual.startedAt, 0, `${type}: таймер ритуала не тронут`);
-    assert.equal(h.rafQueue.length, 0, `${type}: кадровый цикл не запущен`);
+    assert.equal(h.rafQueue.length, queueBefore, `${type}: касание не добавило кадров в цикл`);
     assert.equal(storage.writes.length, 0, `${type}: запись флага не повторена`);
     assert.equal(h.elements.caption.hidden, true, `${type}: подпись осталась скрытой`);
     assert.deepEqual(h.elements.caption.style, {}, `${type}: подписью не управляют`);
@@ -285,9 +302,9 @@ test('repeat: касание/клик/тап при revealed — полный no
   }
 });
 
-// --- Строка матрицы: «rAF-цикл при повторном входе» ------------------------
+// --- Строка матрицы: «Цикл живой сцены при повторном входе» -----------------
 
-test('repeat: rAF-цикл не запускается — только статичные кадры (bootstrap, регистрация, resize)', () => {
+test('repeat: живая сцена — bootstrap планирует ровно один цикл, касания/resize лишних кадров не добавляют', () => {
   const storage = createSharedStorage(FIRST_VISIT_VALUE);
   const h = createHarness({ storage });
   const contract = createSceneContract();
@@ -298,17 +315,24 @@ test('repeat: rAF-цикл не запускается — только стат
   // Каждый render — ровно один fillRect фона; лишних кадров нет.
   // Точный счёт осознанный: при добавлении fillRect-слоёв в эпики 2–4
   // числа обновляются здесь намеренно (маркер — присваивание fillStyle
-  // фона в renderFrame), а не тихо.
+  // фона в renderFrame), а не тихо. Кадры живой сцены (цикл rAF) в счёт
+  // не входят — очередь НЕ flush-ится, цикл проверяется отдельно в
+  // test/live.test.js.
   assert.equal(callsNamed(h.ctx, 'fillRect').length, 2, 'два статичных кадра: bootstrap + регистрация мира');
+
+  // Ровно один цикл живой сцены (story 1.5) — и он не растёт от событий:
+  // семантика «касания не порождают цикл/кадры» из 1.4 сохранена.
+  const queueAfterStart = h.rafQueue.length;
+  assert.equal(queueAfterStart, 1, 'bootstrap запустил ровно один цикл');
 
   h.sceneListeners.pointerdown();
   h.sceneListeners.mousedown();
-  assert.equal(h.rafQueue.length, 0, 'очередь rAF пуста после касаний');
+  assert.equal(h.rafQueue.length, queueAfterStart, 'очередь не выросла после касаний');
   assert.equal(callsNamed(h.ctx, 'fillRect').length, 2, 'касания не породили кадров');
 
   h.winListeners.resize({ type: 'resize' });
   assert.equal(callsNamed(h.ctx, 'fillRect').length, 3, 'resize — один статичный кадр');
-  assert.equal(h.rafQueue.length, 0, 'цикл так и не запланирован');
+  assert.equal(h.rafQueue.length, queueAfterStart, 'resize не добавил кадров в цикл');
   assert.equal(ritual.phase, PHASE_REVEALED, 'фаза не сдвинулась');
 });
 

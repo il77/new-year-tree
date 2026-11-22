@@ -1,8 +1,12 @@
 // Bootstrap страницы: размер canvas, кадр рендера, ресайз, деградация —
 // и обвязка ритуала первого входа (story 1.3): касание → цикл кадров →
-// флаг localStorage. Вся «умная» логика ритуала — чистый src/ritual.js;
-// здесь только DOM/localStorage/rAF, всё через аргументы и с guard'ами —
-// поэтому тесты гоняют ритуал на стабах без браузера (node:test, без jsdom).
+// флаг localStorage. Живая сцена (story 1.5): тот же ЕДИНЫЙ rAF-цикл гонит
+// и ритуал, и постоянную анимацию — после revealed он не останавливается,
+// пока открыта страница, и вкладка-пауза экономит CPU (visibilitychange).
+// Вся «умная» логика ритуала и математика движения — чистые функции
+// (src/ritual.js, src/animation.js); здесь только DOM/localStorage/rAF,
+// всё через аргументы и с guard'ами — поэтому тесты гоняют цикл на стабах
+// с управляемыми часами (node:test, без jsdom).
 
 import { renderFrame } from './scene.js';
 import { sceneContract } from './contract.js';
@@ -12,7 +16,6 @@ import {
   readFirstVisit,
   writeFirstVisit,
   PHASE_DARK,
-  PHASE_FALLING,
   PHASE_REVEALED,
 } from './ritual.js';
 
@@ -54,33 +57,59 @@ export function bootstrap(doc, win, contract = sceneContract) {
       : Date.now();
 
   let looping = false;
+  // Мир был готов ещё до bootstrap (флаг story 1.4): цикл живой сцены
+  // стартует сразу, но флаг переписывать не нужно — writeFirstVisit
+  // относится только к ритуалу, доигранному здесь и сейчас.
+  const revealedAtStart = ritual.phase === PHASE_REVEALED;
+  // Флаг и подпись — ровно один раз за сессию: цикл продолжается на
+  // revealed и не должен перезаписывать хранилище на каждом кадре.
+  let ritualFinished = false;
 
-  /** Ритуал доигран: флаг, подпись, конец цикла. */
+  /** Вкладка скрыта? Guard: у стабов doc.hidden может не быть. */
+  function pageIsHidden() {
+    return Boolean(doc) && doc.hidden === true;
+  }
+
+  /** Ритуал доигран: флаг, подпись — ровно один раз за сессию. */
   function finishRitual() {
+    if (ritualFinished) return;
+    ritualFinished = true;
     writeFirstVisit(storage);
     if (caption) caption.hidden = true;
   }
 
   /**
-   * Кадровый цикл ритуала на rAF: идёт, пока фаза не revealed, затем
-   * останавливается (постоянная анимация — story 1.5).
+   * Единый кадровый цикл страницы (story 1.3 + 1.5): гонит ритуал и
+   * постоянную анимацию живой сцены, пока страница открыта. На revealed
+   * НЕ останавливается (R11: движение не останавливается, пока открыта
+   * страница); остановка — только при скрытой вкладке (CPU) и без rAF/2D.
+   * Повторный вызов (касание, возобновление вкладки) — no-op: guard
+   * `looping` держит ровно один цикл, второй не появляется.
    *
-   * @returns {boolean} false — rAF недоступен (деградация)
+   * @returns {boolean} false — rAF или 2D недоступны (деградация)
    */
   function scheduleFrames() {
     if (typeof win.requestAnimationFrame !== 'function') return false;
     if (looping) return true;
+    // Без 2D-контекста анимировать нечего — цикл не планируем (там же
+    // render() уходит в текстовую заглушку, деградация без падения).
+    if (typeof canvas.getContext !== 'function' || !canvas.getContext('2d')) return false;
     looping = true;
     const frame = () => {
+      if (pageIsHidden()) {
+        // Вкладка скрыта: кадр не рисуем и не перепланируем — цикл встаёт,
+        // его вернёт visibilitychange. looping = false — точка возобновления
+        // без риска двойного цикла (guard в scheduleFrames).
+        looping = false;
+        return;
+      }
       const t = now();
       ritual.update(t);
       render(t);
-      if (ritual.phase === PHASE_REVEALED) {
-        looping = false;
-        finishRitual();
-      } else {
-        win.requestAnimationFrame(frame);
-      }
+      // Флаг ставит именно цикл (story 1.3), один раз (guard) и только если
+      // ритуал доигран здесь — при повторном входе записи не нужны.
+      if (!revealedAtStart && ritual.phase === PHASE_REVEALED) finishRitual();
+      win.requestAnimationFrame(frame);
     };
     win.requestAnimationFrame(frame);
     return true;
@@ -104,11 +133,12 @@ export function bootstrap(doc, win, contract = sceneContract) {
   }
 
   /**
-   * @param {number} [t] время кадра в мс; без аргумента — 0 (статичный
-   *   кадр, как и раньше); во время ритуала ресайз-кадр берёт now(), чтобы
-   *   мир не «откатился» на нулевом времени. Нечисловой t (слушатель
-   *   resize получает Event, а не число) отбрасывается тем же путём, что
-   *   и отсутствующий — кадр не должен зависеть от типа аргумента.
+   * @param {number} [t] время кадра в мс; без аргумента — 0 для тёмной
+   *   фазы (статичный кадр, как и раньше) и `now()` для фаз с живой сценой
+   *   (revealed: ресайз-кадр не «откатывает» покачивание камеры в ноль).
+   *   Нечисловой t (слушатель resize получает Event, а не число)
+   *   отбрасывается тем же путём, что и отсутствующий — кадр не должен
+   *   зависеть от типа аргумента.
    * @returns {void}
    */
   function render(t) {
@@ -132,9 +162,9 @@ export function bootstrap(doc, win, contract = sceneContract) {
     const time =
       typeof t === 'number' && Number.isFinite(t)
         ? t
-        : ritual.phase === PHASE_FALLING
-          ? now()
-          : 0;
+        : ritual.phase === PHASE_DARK
+          ? 0
+          : now();
     renderFrame(ctx, canvas.width, canvas.height, time, contract, ritual);
   }
 
@@ -157,6 +187,23 @@ export function bootstrap(doc, win, contract = sceneContract) {
   // Обёртка обязательна: браузер передаёт в слушатель Event — без неё
   // (и без coerce в render) искра получала бы NaN и пропадала после ресайза.
   win.addEventListener('resize', () => render());
+
+  // Живая сцена при повторном входе: мир готов с первого кадра — цикл
+  // стартует сразу. В фазе dark анимировать нечего (слои не видны, искра
+  // статична): там цикл стартует только от касания — порог-ритуал (R9/R10)
+  // остаётся тихой статикой, а дальше движение не останавливается.
+  if (ritual.phase === PHASE_REVEALED) scheduleFrames();
+
+  // Вкладка скрыта — цикл останавливается (кадр в frame() сам не
+  // перепланируется) и возобновляется при возврате. Guard'ы для стабов:
+  // у doc может не быть addEventListener, doc.hidden — см. pageIsHidden().
+  // Фаза dark при возобновлении не анимируется — поведение не меняется.
+  if (typeof doc.addEventListener === 'function') {
+    doc.addEventListener('visibilitychange', () => {
+      if (!pageIsHidden() && ritual.phase !== PHASE_DARK) scheduleFrames();
+    });
+  }
+
   return { render, contract, ritual };
 }
 

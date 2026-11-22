@@ -41,7 +41,9 @@ function approx(actual, expected, eps = 0.5, label = '') {
   );
 }
 
-/** Мок-2D-контекст: фиксирует вызовы, включая градиенты и globalAlpha. */
+/** Мок-2D-контекст: фиксирует вызовы, включая градиенты и globalAlpha.
+ *  save/restore/translate/rotate/scale — методы трансформации камеры
+ *  (story 1.5); добавлены механически, утверждения не менялись. */
 function createMockCtx() {
   const calls = [];
   const record = (name, ...args) => calls.push({ name, args });
@@ -58,6 +60,11 @@ function createMockCtx() {
     quadraticCurveTo: (...a) => record('quadraticCurveTo', ...a),
     closePath: (...a) => record('closePath', ...a),
     stroke: (...a) => record('stroke', ...a),
+    save: (...a) => record('save', ...a),
+    restore: (...a) => record('restore', ...a),
+    translate: (...a) => record('translate', ...a),
+    rotate: (...a) => record('rotate', ...a),
+    scale: (...a) => record('scale', ...a),
     createLinearGradient: (...a) => {
       record('createLinearGradient', ...a);
       return { addColorStop: (...s) => record('addColorStop', ...s) };
@@ -257,6 +264,9 @@ test('ritual: касание запускает ритуал — pointerdown/tou
     const { ritual } = bootstrap(h.doc, h.win, contract);
 
     assert.equal(typeof h.sceneListeners[type], 'function', `${type} подключён`);
+    // До касания цикла нет: тёмная фаза статична (анимировать нечего),
+    // касание — единственный её триггер (живая сцена 1.5 стартует со сценой).
+    assert.equal(h.rafQueue.length, 0, 'до касания очередь rAF пуста');
     h.sceneListeners[type]();
 
     assert.equal(ritual.phase, PHASE_FALLING, `${type}: фаза falling`);
@@ -379,10 +389,19 @@ test('ritual: флаг "1" — сразу готовый мир, ритуал н
   assert.equal(h.elements.caption.hidden, true, 'подпись «зажги» не показывается');
   assert.notEqual(h.elements.scene.style.cursor, 'pointer', 'нет ловушки-курсора');
 
-  // Касание — no-op: ритуал не стартует, цикл не запускается.
+  // Касание — no-op: ритуал не стартует, кадров не прибавляется.
+  // Семантика 1.4/1.3 сохранена сравнением очереди: цикл живой сцены
+  // (story 1.5) bootstrap уже запустил для revealed — касание не должен
+  // ни остановить его, ни породить второй.
+  const queueBeforeTouch = h.rafQueue.length;
+  assert.equal(queueBeforeTouch, 1, 'цикл живой сцены запущен с bootstrap');
   h.sceneListeners.pointerdown();
   assert.equal(ritual.phase, PHASE_REVEALED, 'фаза не изменилась');
-  assert.equal(h.rafQueue.length, 0, 'цикл ритуала не запущен');
+  assert.equal(
+    h.rafQueue.length,
+    queueBeforeTouch,
+    'касание не добавило кадров — цикл не перезапущен',
+  );
   assert.equal(storage.writes.length, 0, 'флаг не перезаписывается');
 });
 
@@ -433,7 +452,7 @@ test('ritual: localStorage бросает — как первый вход ка�
 
   assert.equal(ritual.phase, PHASE_REVEALED, 'ритуал доигран');
   assert.equal(h.elements.caption.hidden, true, 'подпись скрыта по финалу');
-  assert.equal(h.rafQueue.length, 0, 'цикл остановился');
+  assert.equal(h.rafQueue.length, 1, 'на revealed цикл продолжается — живая сцена (1.5)');
   assert.ok(
     callsNamed(h.ctx, 'createLinearGradient').length > 0,
     'мир проявился в кадре',
@@ -459,7 +478,7 @@ test('ritual: флаг записан циклом rAF с рабочим хра�
   }
 
   assert.equal(ritual.phase, PHASE_REVEALED, 'ритуал доигран циклом');
-  assert.equal(h.rafQueue.length, 0, 'цикл остановился');
+  assert.equal(h.rafQueue.length, 1, 'на revealed цикл продолжается — живая сцена (1.5)');
   assert.deepEqual(
     storage.writes,
     [[FIRST_VISIT_KEY, FIRST_VISIT_VALUE]],
