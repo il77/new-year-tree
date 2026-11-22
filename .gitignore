@@ -1,3 +1,4 @@
 dist/
 node_modules/
+data/
 _bmad/custom/*.user.toml

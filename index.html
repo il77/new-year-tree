@@ -47,6 +47,22 @@
       transition: opacity 700ms ease;
     }
 
+    /* Общий счётчик визитов (story 2.1): тихий текст внизу кадра. */
+    #garland-counter {
+      position: fixed;
+      bottom: 1.2rem;
+      left: 0;
+      right: 0;
+      margin: 0;
+      text-align: center;
+      color: rgba(255, 244, 214, 0.78);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(0.9rem, 2vw, 1.2rem);
+      letter-spacing: 0.18em;
+      pointer-events: none;
+      user-select: none;
+    }
+
     /* Текстовая заглушка, если 2D Canvas недоступен */
     #fallback {
       position: fixed;
@@ -91,6 +107,7 @@
     }
   </script>
   <p id="fallback" hidden>Ваш браузер не поддерживает 2D Canvas — сцена недоступна.</p>
+  <p id="garland-counter">—</p>
   <script type="module" src="./src/main.js"></script>
 </body>
 </html>

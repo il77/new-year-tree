@@ -11,6 +11,8 @@
 import { renderFrame } from './scene.js';
 import { sceneContract } from './contract.js';
 import { registerWorld } from './world.js';
+import { fetchVisit, syncCounter, updateCounter } from './garland-client.js';
+import { registerGarland } from './garland.js';
 import {
   createRitual,
   readFirstVisit,
@@ -220,6 +222,25 @@ export const page = typeof document !== 'undefined' ? bootstrap(document, window
 // Регистрация + render() идут в том же тике, что и первый кадр, — браузер
 // не успевает нарисовать кадр без мира.
 if (page) {
-  registerWorld(page.contract, (t) => page.ritual.progress(t));
+  const progressAt = (t) => page.ritual.progress(t);
+  registerWorld(page.contract, progressAt);
+  // Гирлянда: ровно один огонёк слоя 20, зарегистрирован рядом с миром на
+  // том же рендер-хэндле, без второго цикла. Появляется вместе с ёлкой.
+  // Seed ответа пока не влияет на геометрию (story 2.3), поэтому регистрируем
+  // один раз локальным seed; повторная регистрация дала бы второй огонёк.
+  // Прогресс тот же, что у мира: в тёмной фазе ёлки нет — огонька нет.
+  registerGarland(page.contract, Date.now(), progressAt);
   page.render();
+
+  // Визит уходит на тот же процесс, что отдал страницу. До ответа — «—»;
+  // fetchVisit глотает сетевую ошибку и вернёт null, тишина в консоли.
+  updateCounter(document, null);
+  fetchVisit().then((visit) => {
+    if (visit) updateCounter(document, visit.count);
+  });
+  // Другие вкладки подтягивают общий счётчик без нового входа: визит в одном
+  // браузере становится виден в другом. Один таймер DOM, не rAF и не экран.
+  setInterval(() => {
+    syncCounter(document);
+  }, 3000);
 }
