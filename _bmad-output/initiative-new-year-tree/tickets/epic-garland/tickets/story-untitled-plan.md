@@ -3,7 +3,7 @@ title: 'Сквозной огонёк: сервер, счётчик, гирля�
 type: feature
 ticket: '1'
 created: '2026-11-22'
-status: built
+status: done
 baseline_revision: '0069c5383dd73469e230da64608aaaeb1e180b56'
 route: full
 route_source: auto
@@ -92,3 +92,5 @@ context: ["docs/contract.md", "docs/style.md"]
 
 **Manual checks (if no CLI):**
 - `npm run dev`, два браузера: визит в одном увеличивает число и зажигает огонёк в обоих; перезагрузка сохраняет число.
+
+**Результат проверки человека (2026-11-22):** локально по плану в двух браузерах — работает. Провёл человек, запись со слов человека.
