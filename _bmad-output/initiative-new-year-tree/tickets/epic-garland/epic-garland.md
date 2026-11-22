@@ -9,6 +9,7 @@ companions: ["docs/contract.md", "docs/style.md", "docs/design-final.html"]
 after: ["epic-scene"]
 refined: true
 risk: high
+status: in-progress
 ---
 
 # Общая гирлянда и счётчик входов
