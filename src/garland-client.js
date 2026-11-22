@@ -8,7 +8,8 @@
  * продолжает работать, счётчик остаётся в состоянии «—».
  *
  * @param {typeof fetch} [fetchImpl] реализация fetch; по умолчанию — глобальная
- * @returns {Promise<{count: number, seed: number} | null>} null — визит неучтён
+ * @returns {Promise<{count: number, seed: number, tens?: number, remainder?: number} | null>}
+ *   null — визит неучтён; агрегат необязателен (старый сервер или деградация)
  */
 async function requestVisit(fetchImpl, method) {
   if (typeof fetchImpl !== 'function') return null;
@@ -16,14 +17,25 @@ async function requestVisit(fetchImpl, method) {
     const response = await fetchImpl('/api/visit', { method });
     if (!response || response.ok === false) return null;
     const payload = await response.json();
-    const { count, seed } = payload ?? {};
+    const { count, seed, tens, remainder } = payload ?? {};
     if (
       typeof count !== 'number' || !Number.isFinite(count) || count < 0 ||
       typeof seed !== 'number' || !Number.isFinite(seed)
     ) {
       return null;
     }
-    return { count, seed };
+    const visit = { count, seed };
+    // Агрегат — необязательное поле того же ответа: принимаем только если
+    // он согласован с count, иначе получатель выведет его из count.
+    if (
+      Number.isInteger(tens) && tens >= 0 &&
+      Number.isInteger(remainder) && remainder >= 0 && remainder < 10 &&
+      tens === Math.floor(count / 10) && remainder === count % 10
+    ) {
+      visit.tens = tens;
+      visit.remainder = remainder;
+    }
+    return visit;
   } catch {
     return null;
   }
@@ -41,11 +53,20 @@ export function fetchSharedVisit(fetchImpl = globalThis.fetch) {
 
 /**
  * Подтягивает общий счётчик в уже открытую вкладку. При ошибке оставляет
- * прежний текст: временный сбой не должен превращать число в тире.
+ * прежний текст: временный сбой не должен превращать число в тире. Полный
+ * ответ (счётчик + агрегат) отдаётся в onVisit — так GET-опрос обновляет и
+ * гирлянду той же вкладки, не создавая второй объект сцены.
+ *
+ * @param {Document} doc документ с элементом #garland-counter
+ * @param {typeof fetch} [fetchImpl] реализация fetch
+ * @param {(visit: {count: number, seed: number, tens?: number, remainder?: number}) => void} [onVisit]
+ *   обработчик успешного ответа
  */
-export async function syncCounter(doc, fetchImpl = globalThis.fetch) {
+export async function syncCounter(doc, fetchImpl = globalThis.fetch, onVisit = null) {
   const visit = await fetchSharedVisit(fetchImpl);
-  if (visit) updateCounter(doc, visit.count);
+  if (!visit) return;
+  updateCounter(doc, visit.count);
+  if (typeof onVisit === 'function') onVisit(visit);
 }
 
 /**

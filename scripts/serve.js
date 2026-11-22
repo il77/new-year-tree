@@ -17,6 +17,19 @@ export const DATA_DIR_NAME = 'data';
 /** Имя единственного JSON-файла со счётчиком и последним seed. */
 export const VISIT_FILE_NAME = 'visits.json';
 
+/**
+ * Чистый агрегат визитов (story 2.2): полные десятки и остаток. Список
+ * отдельных визитов не хранится — обе части выводятся из общего числа,
+ * поэтому рост состояния ограничен схлопыванием 10→1, а не отказом в входе.
+ *
+ * @param {number} count общее число визитов
+ * @returns {{ tens: number, remainder: number }}
+ */
+export function aggregateOf(count) {
+  const total = Number.isFinite(count) && count > 0 ? Math.floor(count) : 0;
+  return { tens: Math.floor(total / 10), remainder: total % 10 };
+}
+
 const MIME = {
   '.html': 'text/html; charset=utf-8',
   '.js': 'text/javascript; charset=utf-8',
@@ -95,14 +108,17 @@ export function createRequestHandler({ root = ROOT, dataDir } = {}) {
         Number.isFinite(stored?.count) && stored.count >= 0 &&
         Number.isFinite(stored?.seed)
       ) {
-        return { count: Math.floor(stored.count), seed: stored.seed };
+        const count = Math.floor(stored.count);
+        // Агрегат пересчитывается из count: файлы story 2.1 без новых полей
+        // читаются так же, как и файлы с готовым агрегатом.
+        return { count, seed: stored.seed, ...aggregateOf(count) };
       }
     } catch (error) {
       if (error?.code !== 'ENOENT') {
         // Битый файл не должен ронять сервер: начинаем счёт заново.
       }
     }
-    return { count: 0, seed: 0 };
+    return { count: 0, seed: 0, ...aggregateOf(0) };
   }
 
   async function recordVisit() {
@@ -113,8 +129,9 @@ export function createRequestHandler({ root = ROOT, dataDir } = {}) {
       // Seed от даты/времени. Потребитель координат появится в story 2.3 —
       // сейчас сервер просто сохраняет последний seed вместе со счётчиком.
       const seed = Date.now();
-      await writeFile(visitFile, JSON.stringify({ count, seed }), 'utf8');
-      return { count, seed };
+      const visit = { count, seed, ...aggregateOf(count) };
+      await writeFile(visitFile, JSON.stringify(visit), 'utf8');
+      return visit;
     };
     const result = pending.then(run, run);
     pending = result.then(

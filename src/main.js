@@ -224,23 +224,28 @@ export const page = typeof document !== 'undefined' ? bootstrap(document, window
 if (page) {
   const progressAt = (t) => page.ritual.progress(t);
   registerWorld(page.contract, progressAt);
-  // Гирлянда: ровно один огонёк слоя 20, зарегистрирован рядом с миром на
+  // Гирлянда: ровно один объект слоя 20, зарегистрирован рядом с миром на
   // том же рендер-хэндле, без второго цикла. Появляется вместе с ёлкой.
   // Seed ответа пока не влияет на геометрию (story 2.3), поэтому регистрируем
-  // один раз локальным seed; повторная регистрация дала бы второй огонёк.
-  // Прогресс тот же, что у мира: в тёмной фазе ёлки нет — огонька нет.
-  registerGarland(page.contract, Date.now(), progressAt);
+  // один раз локальным seed; повторная регистрация дала бы вторую гирлянду.
+  // Прогресс тот же, что у мира: в тёмной фазе ёлки нет — огоньков нет.
+  const garland = registerGarland(page.contract, Date.now(), progressAt);
   page.render();
 
   // Визит уходит на тот же процесс, что отдал страницу. До ответа — «—»;
   // fetchVisit глотает сетевую ошибку и вернёт null, тишина в консоли.
+  // Агрегат из ответа приходит в уже зарегистрированную гирлянду.
+  const applyVisit = (visit) => {
+    if (!visit) return;
+    updateCounter(document, visit.count);
+    garland.setState(visit);
+  };
   updateCounter(document, null);
-  fetchVisit().then((visit) => {
-    if (visit) updateCounter(document, visit.count);
-  });
+  fetchVisit().then(applyVisit);
   // Другие вкладки подтягивают общий счётчик без нового входа: визит в одном
-  // браузере становится виден в другом. Один таймер DOM, не rAF и не экран.
+  // браузере становится виден в другом — тот же агрегат и огоньки в одной
+  // гирлянде. Один таймер DOM, не rAF и не экран.
   setInterval(() => {
-    syncCounter(document);
+    syncCounter(document, undefined, applyVisit);
   }, 3000);
 }

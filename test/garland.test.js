@@ -1,5 +1,7 @@
-// Story 2.1 — сквозной путь «визит → счётчик → огонёк». Тесты без новых
-// пакетов: node:http на порту 0, временная папка данных, мок 2D-контекста.
+// Story 2.1 + 2.2 — сквозной путь «визит → агрегат → счётчик → огоньки».
+// Тесты без новых пакетов: node:http на порту 0, временная папка данных,
+// мок 2D-контекста. Проверки story 2.1 (один огонёк, фон кадра) не тронуты:
+// новые огоньки и сияние проверяются отдельными тестами.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,11 +10,19 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import os from 'node:os';
 import path from 'node:path';
 
-import { createRequestHandler } from '../scripts/serve.js';
+import { aggregateOf, createRequestHandler, VISIT_FILE_NAME } from '../scripts/serve.js';
 import { createMockCtx, callsNamed } from '../scripts/mock-ctx.js';
 import { createSceneContract } from '../src/contract.js';
 import { fetchSharedVisit, fetchVisit, syncCounter, updateCounter } from '../src/garland-client.js';
-import { GARLAND_CORE_RADIUS, GARLAND_LAYER, registerGarland } from '../src/garland.js';
+import {
+  GARLAND_BIG_RADIUS,
+  GARLAND_CORE_RADIUS,
+  GARLAND_GLOW_COUNT,
+  GARLAND_GLOW_STOPS,
+  GARLAND_LAYER,
+  normalizeGarlandState,
+  registerGarland,
+} from '../src/garland.js';
 import { createRitual } from '../src/ritual.js';
 import { renderFrame } from '../src/scene.js';
 
@@ -75,6 +85,30 @@ function makeDoc() {
   };
 }
 
+/** Пишет состояние в файл данных — в том числе старый формат без агрегата. */
+async function seedVisits(dataDir, state) {
+  await mkdir(dataDir, { recursive: true });
+  await writeFile(path.join(dataDir, VISIT_FILE_NAME), JSON.stringify(state), 'utf8');
+}
+
+/** Кадр гирлянды с заданным агрегатом: один объект, изолированный контракт. */
+function garlandFrame(state, progressAt = null) {
+  const contract = createSceneContract();
+  const garland = registerGarland(contract, 7, progressAt, state);
+  const ctx = createMockCtx();
+  contract.draw(ctx, 1280, 800, 0);
+  return { contract, garland, ctx };
+}
+
+/** Радиусы ядер в кадре: у шара ореол = радиус × 4, ядро — сам радиус. */
+function coreRadii(ctx) {
+  return callsNamed(ctx, 'arc')
+    .map((call) => call.args[2])
+    .filter((r) => r === GARLAND_BIG_RADIUS || r === GARLAND_CORE_RADIUS);
+}
+
+const byRadius = (a, b) => a - b;
+
 test('первый визит: POST /api/visit создаёт файл, считает 1 и возвращает seed', async (t) => {
   const { port, dataDir } = await startServer(t);
   const res = await post(port);
@@ -134,7 +168,11 @@ test('две вкладки: второй вход даёт 2, первая до
   await syncCounter(firstDoc, firstFetch);
   assert.equal(firstDoc.counter.textContent, '2');
   const readBack = await fetchSharedVisit(secondFetch);
-  assert.deepEqual(readBack, { count: 2, seed: secondVisit.seed }, 'чтение не меняет счётчик');
+  assert.deepEqual(
+    readBack,
+    { count: 2, seed: secondVisit.seed, tens: 0, remainder: 2 },
+    'чтение не меняет счётчик и возвращает тот же агрегат',
+  );
 
   // У каждой вкладки ровно один огонёк слоя 20.
   for (let i = 0; i < 2; i += 1) {
@@ -261,4 +299,260 @@ test('закрытый путь: /data/… и ../ дают 404, статика �
   // Запрос визита продолжает работать, даже когда папка данных внутри корня.
   const visit = JSON.parse((await post(port)).body);
   assert.equal(visit.count, 1);
+});
+
+test('агрегат: чистые полные десятки и остаток, в том числе старый ответ без полей', () => {
+  assert.deepEqual(aggregateOf(0), { tens: 0, remainder: 0 });
+  assert.deepEqual(aggregateOf(9), { tens: 0, remainder: 9 });
+  assert.deepEqual(aggregateOf(10), { tens: 1, remainder: 0 });
+  assert.deepEqual(aggregateOf(11), { tens: 1, remainder: 1 });
+  assert.deepEqual(aggregateOf(299), { tens: 29, remainder: 9 });
+  assert.deepEqual(aggregateOf(300), { tens: 30, remainder: 0 });
+  assert.deepEqual(aggregateOf(NaN), { tens: 0, remainder: 0 });
+  assert.deepEqual(
+    normalizeGarlandState({ count: 11, seed: 1 }),
+    { count: 11, tens: 1, remainder: 1 },
+    'нет агрегата в ответе — выводим его из count',
+  );
+});
+
+test('десятый вход: count 9 → 10, один полный десяток, всё состояние одним файлом', async (t) => {
+  const { port, dataDir } = await startServer(t);
+  await seedVisits(dataDir, { count: 9, seed: 111 }); // файл story 2.1 без агрегата
+
+  const res = await post(port);
+  assert.equal(res.status, 200, 'ни один визит не отклонён');
+  const visit = JSON.parse(res.body);
+  assert.equal(visit.count, 10);
+  assert.equal(visit.tens, 1);
+  assert.equal(visit.remainder, 0);
+  assert.ok(Number.isFinite(visit.seed));
+
+  const files = await readdir(dataDir);
+  assert.equal(files.length, 1, 'счётчик и агрегат живут одним файлом');
+  const stored = JSON.parse(await readFile(path.join(dataDir, VISIT_FILE_NAME), 'utf8'));
+  assert.deepEqual(stored, visit);
+  assert.deepEqual(
+    Object.keys(stored).sort(),
+    ['count', 'remainder', 'seed', 'tens'],
+    'в файле нет списка отдельных визитов',
+  );
+
+  const readBack = JSON.parse((await get(port, '/api/visit')).body);
+  assert.deepEqual(readBack, visit, 'GET не добавляет визит и отдаёт тот же агрегат');
+});
+
+test('одиннадцатый вход: count 10 → 11, десяток и остаток 1, счётчик «11»', async (t) => {
+  const { port, dataDir } = await startServer(t);
+  await seedVisits(dataDir, { count: 10, seed: 222, tens: 1, remainder: 0 });
+
+  const res = await post(port);
+  assert.equal(res.status, 200);
+  const visit = JSON.parse(res.body);
+  assert.equal(visit.count, 11);
+  assert.equal(visit.tens, 1);
+  assert.equal(visit.remainder, 1);
+
+  const doc = makeDoc();
+  updateCounter(doc, visit.count);
+  assert.equal(doc.counter.textContent, '11');
+  const readBack = JSON.parse((await get(port, '/api/visit')).body);
+  assert.deepEqual(readBack, visit, 'опрос не меняет состояние');
+});
+
+test('кадр гирлянды: десять входов — один большой огонёк, одиннадцать — большой и мелкий', () => {
+  const ten = garlandFrame({ count: 10, seed: 1, tens: 1, remainder: 0 });
+  assert.equal(ten.contract.size, 1, 'ровно одна регистрация слоя 20');
+  assert.equal(callsNamed(ten.ctx, 'fillRect').length, 0, 'ни одного прямоугольника');
+  assert.deepEqual(coreRadii(ten.ctx), [GARLAND_BIG_RADIUS], 'вместо десяти мелких — один большой');
+  assert.equal(
+    callsNamed(ten.ctx, 'createRadialGradient').length,
+    2,
+    'большой огонёк — тот же шар: ореол + ядро',
+  );
+
+  const eleven = garlandFrame({ count: 11, seed: 1, tens: 1, remainder: 1 });
+  assert.deepEqual(coreRadii(eleven.ctx).sort(byRadius), [GARLAND_CORE_RADIUS, GARLAND_BIG_RADIUS]);
+  const again = garlandFrame({ count: 11, seed: 999, tens: 1, remainder: 1 });
+  const positions = (ctx) => callsNamed(ctx, 'arc').map((call) => [call.args[0], call.args[1]]);
+  assert.deepEqual(positions(eleven.ctx), positions(again.ctx), 'раскладка детерминирована по номеру слота');
+
+  // Новое состояние приходит в уже зарегистрированный объект.
+  ten.garland.setState({ count: 11, seed: 1, tens: 1, remainder: 1 });
+  const updated = createMockCtx();
+  ten.contract.draw(updated, 1280, 800, 0);
+  assert.equal(ten.contract.size, 1, 'второй регистрации нет');
+  assert.deepEqual(coreRadii(updated).sort(byRadius), [GARLAND_CORE_RADIUS, GARLAND_BIG_RADIUS]);
+  assert.deepEqual(ten.garland.state, { count: 11, tens: 1, remainder: 1 });
+});
+
+test('сияние ёлки: 300 входов — тёплый градиент вокруг ёлки, при 299 его нет', () => {
+  const stateFor = (count) => ({
+    count,
+    seed: 1,
+    tens: Math.floor(count / 10),
+    remainder: count % 10,
+  });
+  const below = garlandFrame(stateFor(GARLAND_GLOW_COUNT - 1));
+  const full = garlandFrame(stateFor(GARLAND_GLOW_COUNT));
+  const stopsOf = (ctx) => callsNamed(ctx, 'addColorStop').map((call) => call.args[1]);
+
+  for (const [, color] of GARLAND_GLOW_STOPS) {
+    assert.ok(!stopsOf(below.ctx).includes(color), `при 299 нет стопа ${color}`);
+    assert.ok(stopsOf(full.ctx).includes(color), `при 300 есть стоп ${color}`);
+  }
+  const glowGradients = callsNamed(full.ctx, 'createRadialGradient')
+    .filter((call) => call.args[2] === 8); // внутренний радиус из мока
+  assert.equal(glowGradients.length, 1, 'один градиент сияния всей ёлки');
+  assert.ok(glowGradients[0].args[5] > 100, 'радиус покрывает всю ёлку');
+  assert.ok(
+    callsNamed(full.ctx, 'arc').some(
+      (call) => Math.abs(call.args[2] - glowGradients[0].args[5]) < 1e-9,
+    ),
+    'сияние — круглый градиентный силуэт, не fillRect',
+  );
+  assert.equal(callsNamed(full.ctx, 'fillRect').length, 0);
+  const cores = coreRadii(full.ctx);
+  assert.equal(
+    cores.filter((r) => r === GARLAND_BIG_RADIUS).length,
+    30,
+    '30 полных десятков — 30 больших огоньков',
+  );
+  assert.equal(cores.filter((r) => r === GARLAND_CORE_RADIUS).length, 0);
+
+  const dark = garlandFrame(stateFor(300), () => ({ layers: { tree: 0 } }));
+  assert.equal(callsNamed(dark.ctx, 'arc').length, 0, 'тёмная фаза остаётся тёмной');
+  assert.equal(callsNamed(dark.ctx, 'createRadialGradient').length, 0);
+});
+
+test('garland-client: агрегат — необязательное поле того же ответа', async () => {
+  const withAggregate = async () => ({
+    ok: true,
+    json: async () => ({ count: 11, seed: 5, tens: 1, remainder: 1 }),
+  });
+  assert.deepEqual(await fetchVisit(withAggregate), { count: 11, seed: 5, tens: 1, remainder: 1 });
+
+  const without = async () => ({ ok: true, json: async () => ({ count: 11, seed: 5 }) });
+  assert.deepEqual(await fetchSharedVisit(without), { count: 11, seed: 5 });
+
+  const broken = async () => ({
+    ok: true,
+    json: async () => ({ count: 11, seed: 5, tens: 'x', remainder: 99 }),
+  });
+  assert.deepEqual(await fetchVisit(broken), { count: 11, seed: 5 }, 'битый агрегат отброшен');
+});
+
+test('две вкладки: GET-опрос доносит тот же агрегат в одну гирлянду', async (t) => {
+  const { port } = await startServer(t);
+  const makeFetch = () => async (url, options) => {
+    const res = await send(port, url, options?.method ?? 'GET');
+    return {
+      ok: res.status >= 200 && res.status < 300,
+      json: async () => JSON.parse(res.body),
+    };
+  };
+  const firstFetch = makeFetch();
+  const secondFetch = makeFetch();
+  let own;
+  for (let i = 0; i < 11; i += 1) own = await fetchVisit(firstFetch);
+  assert.equal(own.count, 11);
+
+  const firstDoc = makeDoc();
+  const secondDoc = makeDoc();
+  const firstContract = createSceneContract();
+  const secondContract = createSceneContract();
+  const firstGarland = registerGarland(firstContract, 1);
+  const secondGarland = registerGarland(secondContract, 2);
+  const apply = (doc, garland) => (visit) => {
+    updateCounter(doc, visit.count);
+    garland.setState(visit);
+  };
+
+  apply(firstDoc, firstGarland)(own);
+  await syncCounter(secondDoc, secondFetch, apply(secondDoc, secondGarland));
+
+  assert.equal(firstDoc.counter.textContent, '11');
+  assert.equal(secondDoc.counter.textContent, '11');
+  assert.deepEqual(firstGarland.state, secondGarland.state);
+  assert.deepEqual(secondGarland.state, { count: 11, tens: 1, remainder: 1 });
+  assert.equal(firstContract.size, 1, 'в первой вкладке одна гирлянда');
+  assert.equal(secondContract.size, 1, 'во второй вкладке одна гирлянда');
+
+  const frame = createMockCtx();
+  secondContract.draw(frame, 1280, 800, 0);
+  assert.deepEqual(coreRadii(frame).sort(byRadius), [GARLAND_CORE_RADIUS, GARLAND_BIG_RADIUS]);
+});
+
+test('деградация без сервера: гирлянда держит безопасный локальный набор', async () => {
+  const failingFetch = async () => {
+    throw new Error('offline');
+  };
+  assert.equal(await fetchVisit(failingFetch), null);
+
+  const contract = createSceneContract();
+  const garland = registerGarland(contract, Date.now());
+  assert.deepEqual(garland.state, { count: 1, tens: 0, remainder: 1 });
+  const ctx = createMockCtx();
+  contract.draw(ctx, 1280, 800, 0);
+  assert.deepEqual(coreRadii(ctx), [GARLAND_CORE_RADIUS], 'одинокий огонёк story 2.1');
+  assert.equal(callsNamed(ctx, 'fillRect').length, 0);
+});
+
+test('гирлянда едет вместе с rise ярусов во время проявления ёлки', () => {
+  const state = { count: 11, seed: 1, tens: 1, remainder: 1 };
+  const steady = garlandFrame(state);
+  const rising = garlandFrame(state, () => ({ layers: { tree: 0.5 } }));
+  const shift = (1 - 0.5) * 800 * 0.015;
+  const arcYs = (ctx) => callsNamed(ctx, 'arc').map((call) => call.args[1]);
+  const steadyYs = arcYs(steady.ctx);
+  const risingYs = arcYs(rising.ctx);
+  assert.equal(risingYs.length, steadyYs.length, 'счётчик вызовов не изменился');
+  for (let i = 0; i < steadyYs.length; i += 1) {
+    assert.ok(
+      Math.abs(risingYs[i] - steadyYs[i] - shift) < 1e-9,
+      `огонёк ${i} сдвинут на rise ярусов`,
+    );
+  }
+
+  const glowState = { count: 300, seed: 1, tens: 30, remainder: 0 };
+  const glowSteady = garlandFrame(glowState);
+  const glowRising = garlandFrame(glowState, () => ({ layers: { tree: 0.5 } }));
+  const glowCy = (ctx) => callsNamed(ctx, 'createRadialGradient')
+    .filter((call) => call.args[2] === 8)[0].args[1];
+  assert.ok(
+    Math.abs(glowCy(glowRising.ctx) - glowCy(glowSteady.ctx) - shift) < 1e-9,
+    'центр сияния сдвинут на тот же rise',
+  );
+
+  const dark = garlandFrame(state, () => ({ layers: { tree: 0 } }));
+  assert.equal(callsNamed(dark.ctx, 'arc').length, 0, 'gating tree <= 0 сохранён');
+});
+
+test('агрегат сверяется с count: рассогласованный ответ не рисует чужие огоньки', async () => {
+  const inconsistent = { count: 11, seed: 5, tens: 30, remainder: 9 };
+  const stub = async (payload) => ({
+    ok: true,
+    json: async () => payload,
+  });
+  assert.deepEqual(
+    await fetchVisit(() => stub(inconsistent)),
+    { count: 11, seed: 5 },
+    'клиент отбросил агрегат, не согласованный с count',
+  );
+  assert.deepEqual(
+    normalizeGarlandState(inconsistent),
+    { count: 11, tens: 1, remainder: 1 },
+    'гирлянда вывела агрегат из count',
+  );
+
+  const consistent = { count: 21, seed: 5, tens: 2, remainder: 1 };
+  assert.deepEqual(await fetchVisit(() => stub(consistent)), consistent, 'согласованный агрегат прошёл');
+  assert.deepEqual(normalizeGarlandState(consistent), { count: 21, tens: 2, remainder: 1 });
+
+  const contract = createSceneContract();
+  const garland = registerGarland(contract, 1, null, inconsistent);
+  const ctx = createMockCtx();
+  contract.draw(ctx, 1280, 800, 0);
+  assert.deepEqual(garland.state, { count: 11, tens: 1, remainder: 1 });
+  assert.deepEqual(coreRadii(ctx).sort(byRadius), [GARLAND_CORE_RADIUS, GARLAND_BIG_RADIUS]);
 });
