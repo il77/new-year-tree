@@ -1,0 +1,71 @@
+# A container's agreed children, in its tickets/ folder; tickets.py ignores unknown keys.
+# Table order is build order. `id` is permanent, never reused.
+# One kind of table per file: an initiative with no epics uses [[entry]] tables, a parent initiative [[initiative]] tables.
+# No status here: the plan carries `status`; `tickets.py mirror` writes `tracker_status` to the leaf.
+# next_id = 7 # written by `tickets.py move`; the folder's counter never goes below it
+
+[[entry]]
+id = 1
+type = "story"
+title = "Сквозной огонёк: сервер, счётчик, гирлянда"
+description = "Tracer bullet: тончайший путь через все слои эпика — расширить статический сервер одним запросом визита, завести папку с файлами состояния, вернуть клиенту seed от даты/времени, показать общий счётчик внизу страницы и зарегистрировать один огонёк гирлянды в контракте рендера на слое 20 (docs/contract.md, docs/style.md). Запуск сервера и открытие двух браузеров — шаг человека."
+verify = "Человек запускает npm run dev и открывает страницу в двух браузерах: визит в одном зажигает огонёк и увеличивает счётчик в обоих; тесты сервера, клиента и регистрации проходят."
+covers = ["R1", "R2", "R3", "R6"]
+after = ["epic-scene"]
+hitl = true
+risk = "high"
+
+[[entry]]
+id = 2
+type = "story"
+title = "Схлопывание 10→1 и сияние ёлки"
+description = "Наименее уверенная часть: агрегат состояния превращает каждые 10 входов в один большой огонёк, не отказывая в входе; заполненная ёлка даёт сильное сияние всей целиком. Состояние остаётся файлами в папке на сервере."
+verify = "11 подряд идущих входов дают один большой огонёк и счётчик 11; при заполнении ёлка даёт сияние; ни один визит не отклонён; тесты агрегата проходят."
+covers = ["R3", "R4"]
+after = [1]
+hitl = false
+risk = "high"
+
+[[entry]]
+id = 3
+type = "story"
+title = "Раскладка по seed и цвет дня недели"
+description = "Чистая клиентская функция превращает seed от даты/времени и день недели в координаты и цвета огоньков: раскладка уникальна для входа, повторима для того же seed. Огоньки рисуются объёмными и гладкими по docs/style.md и регистрируются через контракт epic-scene."
+verify = "Два разных seed дают разную раскладку, один и тот же seed — одинаковую; цвета меняются по дням недели; тесты детерминизма и стиля проходят."
+covers = ["R5", "R6"]
+after = [1]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 4
+type = "story"
+title = "Надёжность точки расширения сцены"
+description = "Закрыть открытые пункты ретро epic-scene в месте, где гирлянда расширяет сцену: сброс globalAlpha перед кадром, перепланирование rAF в finally, guard для win.addEventListener и для caption/fallback, Number.isFinite в startRitual, рабочая проверка записи флага вместо инертной. Код не менялся после браузерного verify epic-scene — здесь он меняется до деплоя нового эпика."
+verify = "Все тесты зелёные; исключение в кадре не останавливает цикл; альфа не утекает между кадрами; ритуал и живая сцена epic-scene работают как раньше."
+covers = []
+after = [1, 3]
+hitl = false
+risk = "medium"
+
+[[entry]]
+id = 5
+type = "story"
+title = "Refactor sweep"
+description = "Уборка по итогам планов и ревью этого эпика: только чистка, scope фиксируется в начале; сюда же уходят документные правки ретро (docs/style.md против мока, формулировки плана 1.5 и docs/contract.md) и фиксация repo-only статуса docs в README."
+verify = "Замечания ревью эпика закрыты, сборка и все тесты зелёные."
+covers = []
+after = [1, 2, 3, 4]
+hitl = false
+risk = "low"
+
+[[entry]]
+id = 6
+type = "story"
+title = "Общий деплой и приёмка в двух браузерах"
+description = "Один процесс отдаёт статику, запрос визита и папку состояния; публикация по адресу zaytse3x.ddns.net. В этой story решается вопрос docs/ в сборке, человек открывает живой адрес в двух браузерах и записывает датированный результат — это интегрированная проверка эпика вместо отдельной end-to-end story."
+verify = "Человек открывает https://zaytse3x.ddns.net в двух браузерах: общая ёлка, огонёк и счётчик; датированная запись в плане; сборка и тесты зелёные."
+covers = ["R1", "R2"]
+after = [5]
+hitl = true
+risk = "high"

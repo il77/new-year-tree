@@ -3,14 +3,14 @@ title: 'Ритуал первого входа'
 type: feature
 ticket: '3'
 created: '2026-11-20'
-status: built
+status: done
 baseline_revision: '2301c43'
 route: full
 route_source: auto
 risk: high
-review: ''
-review_source: ''
-lenses_ran: []
+review: quick
+review_source: pinned
+lenses_ran: [quick]
 review_loop_iteration: 0
 context: []
 ---
@@ -130,3 +130,4 @@ context: []
 
 **Manual checks (if no CLI):**
 - `npm run dev`, чистый профиль браузера (без localStorage): темнота, «зажги»; клик/тап → искра падает, снег → лес → ёлка проявляются плавно; перезагрузка → сразу мир, ритуал не играется; в консоли нет ошибок
+- ✅ **2026-11-22, проверка человеком в браузере: работает.** Чистый профиль → ритуал → перезагрузка → готовый мир; консоль чистая.

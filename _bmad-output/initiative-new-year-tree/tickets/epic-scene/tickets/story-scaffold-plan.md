@@ -3,7 +3,7 @@ title: 'Scaffold, деплой и тёмная страница с искрой'
 type: feature
 ticket: '1'
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: 'NO_VCS'
 route: full
 route_source: auto
@@ -82,8 +82,9 @@ context: []
 ## Verification
 
 **Commands:**
-- `npm test` -- expected: все тесты зелёные, exit 0
-- `npm run build` -- expected: статика собрана без ошибок
+- `npm test` -- ✅ 2026-11-22: 43/43 зелёные, exit 0
+- `npm run build` -- ✅ 2026-11-22: exit 0, статика собрана в `dist/`
 
 **Manual checks (if no CLI):**
 - Запустить локальный сервер, открыть страницу: чёрная, искра, «зажги», без консольных ошибок; повторить во втором браузере
+- ✅ **2026-11-22, проверка человеком: работает.** Локальный запуск показывает чёрный экран с искрой; деплой по адресу `zaytse3x.ddns.net` перенесён в `epic-garland` (Decision 2026-11-22).

@@ -3,13 +3,13 @@ title: 'Контракт рендера сцены'
 type: feature
 ticket: '2'
 created: '2026-11-19'
-status: built
+status: done
 baseline_revision: 'NO_VCS'
 route: full
 route_source: auto
 risk: medium
-review: ''
-review_source: ''
+review: quick
+review_source: pinned
 lenses_ran: [quick]
 review_loop_iteration: 0
 context: []
@@ -51,10 +51,10 @@ context: []
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `src/scene.js` (или новый `src/contract.js`) -- интерфейс: регистрация объекта + вызов его draw-функции на кадре после фона/искры -- общий hook для эпиков 2–4
-- [ ] `src/main.js` -- подключить интерфейс к кадру/ресайзу -- чтобы объекты реально попадали на экран
-- [ ] `test/contract.test.js` -- тесты матрицы: регистрация вызывается, порядок стабилен, невалидный аргумент даёт ошибку -- verify story: «тестовый объект добавляется через контракт и отображается»
-- [ ] `docs/contract.md` + ссылка в `README.md` -- как эпику 2–4 добавить объект -- документ контракта, который проверяет verify
+- [x] `src/contract.js` -- `createSceneContract()`: регистрация draw-функции со слоем и вызов всех объектов на кадре после фона/искры -- общий hook для эпиков 2–4
+- [x] `src/main.js` -- контракт подключён к `renderFrame` и передан в `bootstrap(doc, win, contract)` -- объекты попадают на экран
+- [x] `test/contract.test.js` -- тесты матрицы: регистрация вызывается, порядок слоёв стабилен, невалидный аргумент даёт ошибку
+- [x] `docs/contract.md` + ссылка в `README.md` -- как эпику 2–4 добавить объект, включая позднюю регистрацию через `page.render()`
 
 **Acceptance Criteria:**
 - Given зарегистрированный тестовый объект, when отрисован кадр, then его draw-функция вызвана с (ctx, width, height, t) и вызовы видны в мок-ctx
@@ -62,6 +62,10 @@ context: []
 - Given существующие тесты, when `npm test`, then все 7 старых + новые зелёные, поведение страницы не изменилось
 
 ## Implementation Notes
+
+- Контракт — фабрика `createSceneContract()` (изолированное состояние в замыкании) плюс общий `sceneContract` для страницы; регистрация сортируется по слою, при равенстве — по порядку вызова.
+- `register` проверяет аргументы и бросает `TypeError` с сообщением `register:`; невалидные значения не попадают в список.
+- Вне браузера `page === null`, общий экземпляр тестами не засорён; эпики 2–4 получают `{ render, contract, ritual }` через `bootstrap`.
 
 ## Plan Change Log
 
@@ -77,8 +81,9 @@ context: []
 ## Verification
 
 **Commands:**
-- `npm test` -- expected: все тесты зелёные, exit 0
-- `npm run build` -- expected: exit 0, статика собрана
+- `npm test` -- ✅ 2026-11-22: 43/43 зелёные, exit 0 (включая `test/contract.test.js`)
+- `npm run build` -- ✅ 2026-11-22: exit 0, статика собрана в `dist/`
 
 **Manual checks (if no CLI):**
 - `npm run dev`, открыть страницу: картинка не изменилась (чёрная, искра, «зажги»), в консоли нет ошибок
+- ✅ **2026-11-22, проверка человеком в браузере: работает.** Картинка 1.1 не изменилась после подключения контракта, консоль чистая.
