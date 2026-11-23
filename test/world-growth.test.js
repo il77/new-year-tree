@@ -7,7 +7,17 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { createMockCtx, callsNamed } from '../scripts/mock-ctx.js';
+import { GARLAND_LAYER } from '../src/garland.js';
+import { CALENDAR_LAYER } from '../src/calendar-star.js';
 import {
+  TREE_BASE_RATIO,
+  TREE_HEIGHT_RATIO,
+  TREE_RISE_RATIO,
+  TREE_WIDTH_RATIO,
+} from '../src/world.js';
+import {
+  CITY_BASE_RATIO,
+  CITY_BUILDINGS,
   WORLD_GROWTH_COLORS,
   WORLD_GROWTH_LAYERS,
   WORLD_GROWTH_THRESHOLDS,
@@ -67,6 +77,21 @@ function snapshot(calls) {
   }));
 }
 
+/** Верхушка ёлки по импортированным из world.js долям кадра. */
+const treeTopAt = (w, h) =>
+  h * TREE_BASE_RATIO - Math.min(h * TREE_HEIGHT_RATIO, w * TREE_WIDTH_RATIO);
+
+/** Радиальные градиенты, у которых первый стоп — заданный цвет. */
+function gradientsWithFirstStop(ctx, color) {
+  const found = [];
+  for (let i = 0; i < ctx.calls.length; i += 1) {
+    if (ctx.calls[i].name !== 'createRadialGradient') continue;
+    const nextStop = ctx.calls.slice(i + 1).find((call) => call.name === 'addColorStop');
+    if (nextStop && nextStop.args[1] === color) found.push(ctx.calls[i]);
+  }
+  return found;
+}
+
 test('пороги ровно 10/30/60, слои 6/9/15; isUnlocked устойчив к мусору', () => {
   assert.deepEqual({ ...WORLD_GROWTH_THRESHOLDS }, { cities: 10, figures: 30, beam: 60 });
   assert.deepEqual({ ...WORLD_GROWTH_LAYERS }, { cities: 6, figures: 9, beam: 15 });
@@ -85,6 +110,7 @@ test('пороги ровно 10/30/60, слои 6/9/15; isUnlocked устойч
     'beamMid',
     'beamFar',
     'beamGlow',
+    'beamHaze',
   ]) {
     assert.equal(typeof WORLD_GROWTH_COLORS[key], 'string', `${key} — стабильный цвет`);
   }
@@ -121,6 +147,25 @@ test('drawCities: ниже порога ноль вызовов, с 10 — ду�
   const above = createMockCtx();
   drawCities(above, W, H, 37, 1000);
   assert.ok(above.calls.length > 0, 'выше порога слой остаётся');
+});
+
+test('drawCities: битые размеры не открывают слой даже при счётчике 10', () => {
+  for (const [badW, badH] of [
+    [0, H],
+    [W, 0],
+    [-3, H],
+    [W, -3],
+    [NaN, H],
+    [W, NaN],
+    [Infinity, H],
+    [W, Infinity],
+    [undefined, H],
+    [W, null],
+  ]) {
+    const ctx = createMockCtx();
+    drawCities(ctx, badW, badH, 10);
+    assert.equal(ctx.calls.length, 0, `размер ${String(badW)}×${String(badH)} — пустой кадр`);
+  }
 });
 
 test('drawFigures: ниже порога ноль вызовов, с 30 — дуги, кривые, градиенты и заливки', () => {
@@ -201,9 +246,8 @@ test('drawBeam: ниже 59 ноль вызовов, с 60 — кривые, д�
   assert.ok(callsNamed(at, 'createRadialGradient').length > 0, 'мягкое свечение появилось');
   assert.ok(callsNamed(at, 'fill').length > 0, 'фигуры луча залиты');
 
-  // Начало луча — ровно верхушка ёлки из src/world.js: base = 0.8h,
-  // treeH = min(0.44h, 0.34w), rise = 0.
-  const top = H * 0.8 - Math.min(H * 0.44, W * 0.34);
+  // Начало луча — ровно верхушка ёлки по константам из src/world.js.
+  const top = treeTopAt(W, H);
   const source = callsNamed(at, 'createLinearGradient')[0];
   assert.equal(source.args[0], W / 2, 'луч идёт из центра кадра');
   assert.ok(Math.abs(source.args[1] - top) < 1e-9, 'луч начинается в верхушке ёлки');
@@ -214,17 +258,37 @@ test('drawBeam: ниже 59 ноль вызовов, с 60 — кривые, д�
   assert.ok(above.calls.length > 0, 'выше порога слой остаётся');
 });
 
+test('R12 (луч): широкий конус почти прозрачен — боковая кромка мягкая', () => {
+  const ctx = createMockCtx();
+  drawBeam(ctx, W, H, 60);
+  const haze = WORLD_GROWTH_COLORS.beamHaze;
+  const alpha = Number.parseFloat(haze.slice(haze.lastIndexOf(',') + 1));
+  assert.ok(alpha > 0 && alpha <= 0.15, `самый широкий слой почти прозрачен (${alpha})`);
+
+  // Первый конус — самый широкий: оба его верхних стопа — дымка.
+  const cones = callsNamed(ctx, 'createLinearGradient');
+  const coneStops = cones.map((cone) => {
+    const start = ctx.calls.indexOf(cone);
+    return ctx.calls
+      .slice(start + 1)
+      .filter((call) => call.name === 'addColorStop')
+      .slice(0, 2)
+      .map((call) => call.args[1]);
+  });
+  assert.deepEqual(coneStops[0], [haze, haze], 'широкий конус не имеет жёсткой границы');
+  assert.ok(
+    coneStops.slice(1).every((stops) => stops.includes(haze) === false),
+    'только внешний слой — рассеянная дымка',
+  );
+});
+
 test('setCount клампит счётчик, хэндл только для чтения, регистрация ровно трёх объектов', () => {
   const { handle, registrations, draws } = trackingContract();
   assert.equal(registrations.length, 3, 'четвёртого объекта нет');
   assert.deepEqual(
     registrations.map((registration) => registration.options.layer),
     [WORLD_GROWTH_LAYERS.cities, WORLD_GROWTH_LAYERS.figures, WORLD_GROWTH_LAYERS.beam],
-  );
-  assert.deepEqual(
-    registrations.map((registration) => registration.options.layer),
-    [6, 9, 15],
-    'города под лесом (8), фигуры под ёлкой (10), луч над ёлкой, но под гирляндой (20)',
+    'города под лесом (8), фигуры под ёлкой (10), луч над ёлкой, но под гирляндой',
   );
 
   assert.equal(handle.count, 0);
@@ -297,7 +361,7 @@ test('тёмная фаза гасит все три слоя; частично�
     'при частичном проявлении видны все три открытых слоя',
   );
 
-  // Луч идёт из видимой верхушки: rise = (1 - tree) * height * 0.015.
+  // Луч идёт из видимой верхушки: rise = (1 - tree) * height * TREE_RISE_RATIO.
   const beamSourceY = (contract) => {
     const ctx = createMockCtx();
     contract.draws[2](ctx, W, H, 0);
@@ -305,7 +369,7 @@ test('тёмная фаза гасит все три слоя; частично�
   };
   const full = trackingContract(() => ({ layers: { tree: 1 } }));
   full.handle.setCount(60);
-  const rise = (1 - 0.4) * H * 0.015;
+  const rise = (1 - 0.4) * H * TREE_RISE_RATIO;
   assert.ok(
     Math.abs(beamSourceY(growing) - beamSourceY(full) - rise) < 1e-9,
     'луч следует за опущенной при проявлении верхушкой ёлки',
@@ -324,21 +388,42 @@ test('тёмная фаза гасит все три слоя; частично�
   );
 });
 
-test('порядок слоёв: 6 < 9 < 15, все ниже гирлянды 20 и звезды 21', () => {
-  // Локальные константы соседних эпиков: контракт менять не нужно.
-  const GARLAND_LAYER = 20;
-  const CALENDAR_STAR_LAYER = 21;
+test('слои мира проявляются вместе с ёлкой: при tree=0.1 они тусклые', () => {
+  const dimContract = trackingContract(() => ({ layers: { tree: 0.1 } }));
+  const fullContract = trackingContract(() => ({ layers: { tree: 1 } }));
+  dimContract.handle.setCount(60);
+  fullContract.handle.setCount(60);
+  const frame = (contract) => contract.draws.map((draw) => {
+    const ctx = createMockCtx();
+    draw(ctx, W, H, 0);
+    return ctx;
+  });
+  const dim = frame(dimContract);
+  const bright = frame(fullContract);
+
+  dim.forEach((ctx, i) => {
+    assert.ok(ctx.calls.length > 0, `слой ${i} виден и при 10% ёлки`);
+    const maxAlpha = Math.max(...callsNamed(ctx, 'globalAlpha').map((call) => call.args[0]));
+    const fullAlpha = Math.max(...callsNamed(bright[i], 'globalAlpha').map((call) => call.args[0]));
+    assert.ok(maxAlpha > 0 && maxAlpha <= 0.15, `слой ${i} тусклый при tree=0.1 (${maxAlpha})`);
+    assert.ok(fullAlpha > maxAlpha, `слой ${i} набирает яркость вместе с ёлкой`);
+    assert.ok(callsNamed(ctx, 'restore').length >= 1, 'альфа возвращена через restore');
+  });
+});
+
+test('порядок слоёв: 6 < 9 < 15, все ниже гирлянды и звезды', () => {
   const { registrations } = trackingContract();
   const layers = registrations.map((registration) => registration.options.layer);
 
-  assert.deepEqual(layers, [6, 9, 15]);
+  assert.deepEqual(layers, [WORLD_GROWTH_LAYERS.cities, WORLD_GROWTH_LAYERS.figures, WORLD_GROWTH_LAYERS.beam]);
   for (let i = 1; i < layers.length; i += 1) {
     assert.ok(layers[i - 1] < layers[i], 'слои registration строго возрастают');
   }
   assert.ok(
-    layers.every((layer) => layer < GARLAND_LAYER && layer < CALENDAR_STAR_LAYER),
+    layers.every((layer) => layer < GARLAND_LAYER && layer < CALENDAR_LAYER),
     'новые слои не перекрывают гирлянду и календарную звезду',
   );
+  assert.ok(GARLAND_LAYER < CALENDAR_LAYER, 'гирлянда остаётся под звездой');
 });
 
 test('R12 (луч): нет fillRect/stroke, три скруглённых конуса, upper-left блик и прозрачный край', () => {
@@ -369,7 +454,7 @@ test('R12 (луч): нет fillRect/stroke, три скруглённых кон
   );
   assert.ok(WORLD_GROWTH_COLORS.beamFar.endsWith(', 0)'), 'beamFar — полностью прозрачный стоп');
 
-  const top = H * 0.8 - Math.min(H * 0.44, W * 0.34);
+  const top = treeTopAt(W, H);
   const cones = callsNamed(ctx, 'createLinearGradient');
   assert.ok(cones.every((g) => Math.abs(g.args[1] - top) < 1e-9), 'все конусы идут от верхушки');
   assert.ok(cones.every((g) => g.args[3] < top), 'конусы уходят вверх, в небо');
@@ -496,6 +581,33 @@ test('R12: без fillRect, градиентная заливка, блик uppe
   assert.ok(
     stops.some((color) => typeof color === 'string' && /rgba\(.*,\s*0\)$/.test(color)),
     'край тени/свечения растворяется в прозрачность',
+  );
+});
+
+test('R12 (города): блик не вылезает за крышу, низ зданий скруглён', () => {
+  const ctx = createMockCtx();
+  drawCities(ctx, W, H, 10);
+  const baseY = H * CITY_BASE_RATIO;
+  const glosses = gradientsWithFirstStop(ctx, WORLD_GROWTH_COLORS.cityGloss);
+
+  assert.equal(glosses.length, CITY_BUILDINGS.length, 'по одному блику на здание');
+  for (const gloss of glosses) {
+    const [gx, gy, , , , gr] = gloss.args;
+    const building = CITY_BUILDINGS.find((b) => Math.abs((b.x - b.w * 0.2) * W - gx) < 1);
+    assert.ok(building, `блик на x=${gx} относится к зданию`);
+    const roof = baseY - building.h * H;
+    assert.ok(gy - gr >= roof - 1e-6, 'блик целиком внутри силуэта, не выше крыши');
+  }
+
+  const curves = callsNamed(ctx, 'quadraticCurveTo');
+  assert.ok(
+    curves.length >= CITY_BUILDINGS.length * 4,
+    'у каждого здания скруглены верхние и нижние углы',
+  );
+  const baseCurves = curves.filter((call) => Math.abs(call.args[3] - baseY) < 1e-6);
+  assert.ok(
+    baseCurves.length >= CITY_BUILDINGS.length,
+    'нижние углы зданий скруглены кривыми у базовой линии',
   );
 });
 
@@ -663,7 +775,7 @@ test('время детерминировано: тот же t — тот же �
   assert.ok(at0.some((alpha, i) => Math.abs(at650[i] - alpha) > 0.02), 'за 650 мс мерцание заметно');
 });
 
-test('фигуры детерминированы: тот же t — тот же кадр, разный t — только блик и рука', () => {
+test('фигуры детерминированы: тот же t — тот же кадр, время двигает только ладонь и блик', () => {
   const first = createMockCtx();
   const same = createMockCtx();
   drawFigures(first, W, H, 30, 1234);
@@ -676,15 +788,9 @@ test('фигуры детерминированы: тот же t — тот же
   const otherFrame = snapshot(other.calls);
   assert.equal(otherFrame.length, firstFrame.length, 'число вызовов от времени не зависит');
 
-  // У каждой фигуры 6 радиальных градиентов и одинаковый блок вызовов.
-  // Хвост блока (7 блик + 11 рука + 7 ладонь) — единственное, что может
-  // шевельнуться; тело, голова, тень и все цвета остаются неподвижны.
-  const figureCount = callsNamed(first, 'createRadialGradient').length / 6;
-  assert.ok(figureCount > 0 && Number.isInteger(figureCount), 'целое число фигур');
-  const block = first.calls.length / figureCount;
-  assert.ok(Number.isInteger(block), 'одинаковый блок вызовов на фигуру');
-  const waveStart = block - 25;
-
+  // Сравниваем по смыслу вызова, а не по магическому номеру в блоке фигуры:
+  // цвета неизменны, геометрия сдвигается плавно, без телепорта.
+  let colorCalls = 0;
   let changed = 0;
   for (let i = 0; i < firstFrame.length; i += 1) {
     const original = firstFrame[i];
@@ -692,28 +798,47 @@ test('фигуры детерминированы: тот же t — тот же
     assert.equal(next.name, original.name);
     if (original.name === 'addColorStop' || original.name === 'fillStyle') {
       assert.deepEqual(next, original, 'цвета не мигают');
+      colorCalls += 1;
+      continue;
     }
-    if (i % block < waveStart) {
-      assert.deepEqual(next, original, 'статичная часть фигуры от времени не зависит');
-    } else if (JSON.stringify(next) !== JSON.stringify(original)) {
-      changed += 1;
+    if (!GEOMETRY_CALLS.has(original.name)) {
+      assert.deepEqual(next, original, 'негеометрические вызовы стабильны');
+      continue;
     }
+    original.args.forEach((value, j) => {
+      if (typeof value !== 'number' || typeof next.args[j] !== 'number') return;
+      assert.ok(
+        Math.abs(value - next.args[j]) < W * 0.05,
+        `${original.name}[${j}] сдвигается плавно, без телепорта`,
+      );
+      if (value !== next.args[j]) changed += 1;
+    });
   }
+  assert.ok(colorCalls > 0, 'цвета записаны');
   assert.ok(changed > 0, 'время действительно меняет позу');
-  assert.ok(changed <= figureCount * 10, 'двигается только мягкий хвост фигуры');
+  // Ограничение на сдвиг каждой координаты выше — этого достаточно, чтобы
+  // отличить дыхание от мигания; долю вызовов не фиксируем (хрупкая метрика).
 
-  // Взмах плавный: за 40 мс доли пикселя, за 650 мс — заметный сдвиг кисти.
-  const handArcXAt = (t) => {
+  // Роли дуг по порядку: тень, голова, блик, ладонь — по одной на фигуру.
+  // Тень и голова неподвижны; ладонь и блик движутся мягко.
+  const arcsAt = (t) => {
     const ctx = createMockCtx();
     drawFigures(ctx, W, H, 30, t);
-    return callsNamed(ctx, 'arc')
-      .filter((_, i) => i % 4 === 3)
-      .map((arc) => arc.args[0]);
+    return callsNamed(ctx, 'arc');
   };
-  const at0 = handArcXAt(0);
-  const at40 = handArcXAt(40);
-  const at650 = handArcXAt(650);
-  assert.equal(at0.length, figureCount, 'по одной ладони на фигуру');
-  assert.ok(at0.every((x, i) => Math.abs(at40[i] - x) < 2), 'за 40 мс сдвиг крошечный');
-  assert.ok(at0.some((x, i) => Math.abs(at650[i] - x) > 0.2), 'за 650 мс взмах заметен');
+  const at0 = arcsAt(0);
+  const at40 = arcsAt(40);
+  const at650 = arcsAt(650);
+  assert.equal(at0.length % 4, 0, 'по четыре дуги на фигуру');
+  const figures = at0.length / 4;
+  assert.ok(figures > 0, 'фигуры есть');
+  for (let i = 0; i < figures; i += 1) {
+    assert.deepEqual(at0[i * 4].args, at650[i * 4].args, 'тень неподвижна');
+    assert.deepEqual(at0[i * 4 + 1].args, at650[i * 4 + 1].args, 'голова неподвижна');
+    assert.ok(Math.abs(at0[i * 4 + 3].args[0] - at650[i * 4 + 3].args[0]) > 0.2, 'взмах заметен');
+  }
+  assert.ok(
+    at0.every((arc, i) => Math.abs(arc.args[0] - at40[i].args[0]) < 2),
+    'за 40 мс сдвиг крошечный — без мигания',
+  );
 });

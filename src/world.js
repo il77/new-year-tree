@@ -50,8 +50,14 @@ function hash01(n) {
 export const SNOW_TOP_RATIO = SPARK_FALL_TO_RATIO;
 /** Базовая линия леса (доля высоты) — горизонт позади снежного поля. */
 const FOREST_BASE_RATIO = 0.74;
-/** Основание ёлки (доля высоты) — стоит на снежном поле. */
-const TREE_BASE_RATIO = 0.8;
+/**
+ * Геометрия ёлки в долях кадра. Экспортируется, чтобы нижние слои мира
+ * (луч epic-world) стартовали ровно из её верхушки и не копировали числа.
+ */
+export const TREE_BASE_RATIO = 0.8;
+export const TREE_HEIGHT_RATIO = 0.44;
+export const TREE_WIDTH_RATIO = 0.34;
+export const TREE_RISE_RATIO = 0.015;
 
 /** Снежинки: фиксированный «рассып», одинаковый во всех кадрах и тестах. */
 export const FLAKES = Array.from({ length: 34 }, (_, i) => ({
@@ -337,9 +343,9 @@ export function drawTree(ctx, width, height, alpha, t) {
   const h = height;
   const cx = w / 2;
   const base = h * TREE_BASE_RATIO;
-  const treeH = Math.min(h * 0.44, w * 0.34);
+  const treeH = Math.min(h * TREE_HEIGHT_RATIO, w * TREE_WIDTH_RATIO);
   const halfW = Math.min(w * 0.17, h * 0.2, treeH * 0.52);
-  const rise = (1 - alpha) * h * 0.015;
+  const rise = (1 - alpha) * h * TREE_RISE_RATIO;
   ctx.globalAlpha = alpha;
 
   // Мягкая тень на снегу (смещена вправо-вниз — свет сверху-слева).

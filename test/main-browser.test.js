@@ -8,7 +8,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createMockCtx, callsNamed, backgroundRectsIn } from '../scripts/mock-ctx.js';
+import { createMockCtx, callsNamed, backgroundRectsIn, frameCalls } from '../scripts/mock-ctx.js';
 import { sceneContract } from '../src/contract.js';
 import { GARLAND_DAY_COLORS, dayIndexFor } from '../src/garland-layout.js';
 import { FIRST_VISIT_KEY, FIRST_VISIT_VALUE, PHASE_REVEALED } from '../src/ritual.js';
@@ -71,11 +71,12 @@ test('main: page-ветка — bootstrap, мир и гирлянда, render, f
     addEventListener: () => {},
   };
   const fetchCalls = [];
+  let responseCount = 12;
   globalThis.fetch = async (url, options) => {
     fetchCalls.push({ url, method: options?.method });
     return {
       ok: true,
-      json: async () => ({ count: 12, seed: 7, tens: 1, remainder: 2 }),
+      json: async () => ({ count: responseCount, seed: 7, tens: 1, remainder: 2 }),
     };
   };
   const timers = [];
@@ -118,23 +119,51 @@ test('main: page-ветка — bootstrap, мир и гирлянда, render, f
     assert.equal(fetchCalls[0].url, '/api/visit', 'адрес запроса не изменился');
     assert.equal(counter.textContent, '12', 'ответ визита дошёл до счётчика');
 
-    // Общий счётчик из ответа (12 ≥ 10) дошёл до слоя городов: следующий кадр
-    // страницы уже содержит тёплый стоп окна — города нарисованы без нового цикла.
-    mod.page.render();
-    const growthStops = callsNamed(ctx, 'addColorStop').map((call) => call.args[1]);
-    assert.ok(
-      growthStops.includes(WORLD_GROWTH_COLORS.windowWarm),
-      'города появились после ответа с общим счётчиком',
-    );
+    // Кадры накапливаются в моке: смотрим только стопы нового кадра, иначе
+    // старый слой дал бы ложный плюс. Один счётчик управляет тремя слоями.
+    const renderFrame = () => {
+      const from = ctx.calls.length;
+      mod.page.render();
+      return callsNamed({ calls: frameCalls(ctx, from) }, 'addColorStop').map((call) => call.args[1]);
+    };
+    const markers = [
+      WORLD_GROWTH_COLORS.windowWarm,
+      WORLD_GROWTH_COLORS.figureLight,
+      WORLD_GROWTH_COLORS.beamCore,
+    ];
+    const at12 = renderFrame();
+    assert.ok(at12.includes(markers[0]), 'города появились после ответа с общим счётчиком');
+    assert.ok(!at12.includes(markers[1]) && !at12.includes(markers[2]), 'фигуры и луч ещё спят');
 
     assert.equal(timers.length, 1, 'один таймер опроса');
     assert.equal(timers[0].ms, 3000, 'интервал 3 с');
 
     // Тот же таймер догоняет счётчик без нового входа: GET, не POST.
+    // 30 открывает фигуры, 60 — луч, без новой регистрации и без rAF.
+    responseCount = 30;
     timers[0].fn();
     await tick();
     assert.deepEqual(fetchCalls.map((c) => c.method), ['POST', 'GET'], 'опрос — GET');
-    assert.equal(counter.textContent, '12', 'счётчик после опроса не сброшен');
+    assert.equal(counter.textContent, '30', 'счётчик обновлён опросом');
+    const at30 = renderFrame();
+    assert.ok(at30.includes(markers[0]) && at30.includes(markers[1]), 'города и фигуры из одного счётчика');
+    assert.ok(!at30.includes(markers[2]), 'луч при 30 ещё спит');
+
+    responseCount = 60;
+    timers[0].fn();
+    await tick();
+    assert.deepEqual(fetchCalls.map((c) => c.method), ['POST', 'GET', 'GET']);
+    const at60 = renderFrame();
+    assert.ok(markers.every((color) => at60.includes(color)), 'при 60 открыты все три слоя мира');
+
+    // Битый ответ отбрасывается клиентом: последнее хорошее состояние
+    // сохраняется, слои не мигают и не сбрасываются на ноль.
+    responseCount = -5;
+    timers[0].fn();
+    await tick();
+    assert.equal(counter.textContent, '60', 'битый ответ не затирает счётчик');
+    const atBad = renderFrame();
+    assert.ok(markers.every((color) => atBad.includes(color)), 'битый ответ не гасит слои');
   } finally {
     // Снимаем стабы: остальные тесты процесса не должны увидеть «браузер».
     for (const name of ['document', 'window', 'fetch', 'setInterval']) {
