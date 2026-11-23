@@ -70,6 +70,9 @@ async function startServer(t, { dataInsideRoot = false } = {}) {
   await mkdir(root, { recursive: true });
   const indexHtml = '<!doctype html><title>ok</title>';
   await writeFile(path.join(root, 'index.html'), indexHtml);
+  // Как и в рабочем репозитории: docs/ лежит в корне статики, но repo-only.
+  await mkdir(path.join(root, 'docs'), { recursive: true });
+  await writeFile(path.join(root, 'docs', 'design-final.html'), 'repo-only mock');
   await writeFile(path.join(tmp, 'outside.txt'), 'top secret');
   const dataDir = dataInsideRoot ? path.join(root, 'data') : path.join(tmp, 'data');
 
@@ -366,6 +369,25 @@ test('закрытый путь: /data/… и ../ дают 404, статика �
   // Запрос визита продолжает работать, даже когда папка данных внутри корня.
   const visit = JSON.parse((await post(port)).body);
   assert.equal(visit.count, 1);
+});
+
+test('docs repo-only: /docs/design-final.html даёт 404, статика и API работают', async (t) => {
+  const { port, indexHtml } = await startServer(t);
+
+  for (const urlPath of ['/docs/design-final.html', '/docs']) {
+    const res = await get(port, urlPath);
+    assert.equal(res.status, 404, `${urlPath} → 404`);
+    assert.ok(!res.body.includes('repo-only mock'), `${urlPath} не утекает содержимое мока`);
+  }
+
+  const ok = await get(port, '/index.html');
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body, indexHtml, 'статика отдаётся как раньше');
+
+  const visit = JSON.parse((await post(port)).body);
+  assert.equal(visit.count, 1, 'форма и счётчик /api/visit не изменены');
+  const readBack = JSON.parse((await get(port, '/api/visit')).body);
+  assert.deepEqual(readBack, visit, 'GET не меняет счётчик');
 });
 
 test('агрегат: чистые полные десятки и остаток, в том числе старый ответ без полей', () => {

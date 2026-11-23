@@ -1,6 +1,7 @@
 // Локальный статический сервер без зависимостей — шаг проверки человеком.
 // Решение 2026-11-19: URL-деплой вынесен в отдельную задачу эпика.
 // Story 2.1: тот же процесс отдаёт статику и считает визиты файлами.
+// Story 6: `/docs/` закрыта — документация и мок остаются repo-only.
 // Обработчик — экспортируемая фабрика: тесты поднимают его на порту 0 со
 // временной папкой данных и не открывают рабочий порт.
 
@@ -14,6 +15,8 @@ const PORT = Number(process.env.PORT ?? 5173);
 
 /** Имя папки с данными визитов (исключена из раздачи и из сборки). */
 export const DATA_DIR_NAME = 'data';
+/** Имя папки документации (repo-only, исключена из раздачи и из сборки). */
+export const DOCS_DIR_NAME = 'docs';
 /** Имя единственного JSON-файла со счётчиком и последним seed. */
 export const VISIT_FILE_NAME = 'visits.json';
 
@@ -71,6 +74,11 @@ async function resolveFile(urlPath, root, dataDir) {
   }
   // Папка данных не раздаётся ни при каких именах файлов внутри неё.
   if (isInside(filePath, dataDir) || isInside(filePath, path.join(root, DATA_DIR_NAME))) {
+    return null;
+  }
+  // Документация repo-only: /docs/ — 404 как на живом сервере, так и в dev,
+  // где раздаётся корень репозитория. Концепт-мок остаётся только в репозитории.
+  if (isInside(filePath, path.join(root, DOCS_DIR_NAME))) {
     return null;
   }
   try {

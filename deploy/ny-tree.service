@@ -1,0 +1,27 @@
+# Пример юнита systemd для «Народной ёлки» — НЕ применяется агентом.
+# Скопируйте файл на сервер, замените плейсхолдеры и включайте только после
+# проверки путей. Зависимостей нет: `npm install` не нужен, нужен только Node 22+.
+
+[Unit]
+Description=Narodnaya elka: static and /api/visit in one Node process
+After=network.target
+
+[Service]
+Type=simple
+# Замените на реального пользователя/группу. data/ в gitignore и отсутствует
+# в свежем клоне: создайте её от имени этого пользователя (или дайте ему
+# запись в каталог сайта), иначе сервер не сможет создать data/ и записать
+# visits.json — mkdir(..., { recursive: true }) требует записи в родителе.
+User=YOUR_USER
+Group=YOUR_GROUP
+# Каталог репозитория на сервере (плейсхолдер).
+WorkingDirectory=/srv/YOUR_SITE_DIR
+# Порт слушателя Node; тот же адрес проксируется в deploy/nginx.conf.example.
+Environment=PORT=5173
+# Проверьте путь до node командой `which node` на сервере.
+ExecStart=/usr/bin/node /srv/YOUR_SITE_DIR/scripts/serve.js
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

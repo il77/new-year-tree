@@ -1,0 +1,43 @@
+# Пример конфига nginx для «Народной ёлки» — НЕ применяется агентом.
+# Замените плейсхолдеры домена, путей и сертификатов до включения конфига.
+# Сертификаты выпускает человек; секреты и ключи в репозиторий не кладутся.
+# nginx только завершает TLS и проксирует ВЕСЬ трафик приложения (статику и
+# /api/visit) в один Node-процесс из ny-tree.service; dist/ не публикуется.
+# Целевой адрес по решению человека — zaytse3x.ddns.net (это цель, а не
+# утверждение, что сайт уже опубликован).
+
+server {
+    listen 80;
+    server_name YOUR_DOMAIN.example.net;   # например, zaytse3x.ddns.net
+
+    # Проверка домена для certbot, если выпуск сертификата через HTTP-01.
+    location /.well-known/acme-challenge/ {
+        root /var/www/YOUR_HTTP_ROOT;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    server_name YOUR_DOMAIN.example.net;
+
+    ssl_certificate     /etc/YOUR_TLS_DIR/fullchain.pem;
+    ssl_certificate_key /etc/YOUR_TLS_DIR/privkey.pem;
+
+    # Один Node-процесс из ny-tree.service отдаёт и статику, и /api/visit.
+    # nginx не раздаёт файлы сам: dist/ тут не публикуется, сервер не
+    # заменяется. Порт должен совпадать с Environment=PORT в юните: если
+    # меняете PORT, замените порт и в proxy_pass ниже.
+    location / {
+        proxy_pass http://127.0.0.1:5173;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection "";
+    }
+}
