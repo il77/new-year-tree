@@ -3,7 +3,7 @@ title: 'Схлопывание 10→1 и сияние ёлки'
 type: feature
 ticket: '2'
 created: '2026-11-22'
-status: built
+status: done
 baseline_revision: '50e5daedc61446f3a90724475d85e33a7f7ccaf5'
 route: full
 route_source: auto
@@ -89,3 +89,5 @@ context: ["docs/contract.md", "docs/style.md", "docs/design-final.html"]
 
 **Manual checks (if no CLI):**
 - Локально `npm run dev`: 11 перезагрузок подряд — счётчик 11, один большой и один мелкий огонёк; сияние появляется только с 300-го входа (для быстрой проверки можно подставить `count` в тестовом хранилище); вход не блокируется.
+
+**Результат проверки человека (2026-11-23):** локально проверил, работает. Провёл человек, запись со слов человека.
