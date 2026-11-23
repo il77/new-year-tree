@@ -25,6 +25,15 @@ import {
 } from '../src/garland.js';
 import { createRitual } from '../src/ritual.js';
 import { renderFrame } from '../src/scene.js';
+import {
+  GARLAND_DAY_COLORS,
+  GARLAND_ROW_COUNT,
+  GARLAND_TIER_COUNT,
+  dayColor,
+  dayIndexFor,
+  lightPalette,
+  slotPlacement,
+} from '../src/garland-layout.js';
 
 /** Один HTTP-запрос к тестовому серверу. */
 function send(port, urlPath, method = 'GET') {
@@ -108,6 +117,54 @@ function coreRadii(ctx) {
 }
 
 const byRadius = (a, b) => a - b;
+
+/** Позиции всех дуг кадра: ореол и ядро каждого огонька. */
+const lightPositions = (ctx) =>
+  callsNamed(ctx, 'arc').map((call) => [call.args[0], call.args[1]]);
+
+/** Цвета ядер: стоп 0.35 используется только в градиенте шара. */
+const coreColors = (ctx) =>
+  callsNamed(ctx, 'addColorStop')
+    .filter((call) => call.args[0] === 0.35)
+    .map((call) => call.args[1]);
+
+/** Прозрачный край ореола — из палитры дня, выбранной человеком. */
+function transparentEdge(dayIndex) {
+  const n = Number.parseInt(GARLAND_DAY_COLORS[dayIndex].slice(1), 16);
+  return `rgba(${(n >> 16) & 255}, ${(n >> 8) & 255}, ${n & 255}, 0)`;
+}
+
+/** Оттенок hex-цвета в градусах — для проверки семейства цвета дня. */
+function hueOf(hex) {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255;
+  const g = ((n >> 8) & 255) / 255;
+  const b = (n & 255) / 255;
+  const max = Math.max(r, g, b);
+  const d = max - Math.min(r, g, b);
+  if (d === 0) return 0;
+  let h;
+  if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+  else if (max === g) h = (b - r) / d + 2;
+  else h = (r - g) / d + 4;
+  return (h / 6) * 360;
+}
+
+/** Два seed одного местного дня (полдень UTC + секунда — вне смены даты). */
+function seedsOfSameDay() {
+  const base = Date.UTC(2026, 0, 1, 12);
+  return [base, base + 1000];
+}
+
+/** Два seed с разными местными днями — подбор не зависит от часового пояса. */
+function seedsOfDifferentDays() {
+  const base = Date.UTC(2026, 0, 1, 12);
+  for (let i = 1; i < 8; i += 1) {
+    const other = base + i * 24 * 60 * 60 * 1000;
+    if (new Date(base).getDay() !== new Date(other).getDay()) return [base, other];
+  }
+  throw new Error('не удалось подобрать seed с другим днём недели');
+}
 
 test('первый визит: POST /api/visit создаёт файл, считает 1 и возвращает seed', async (t) => {
   const { port, dataDir } = await startServer(t);
@@ -258,7 +315,10 @@ test('registerGarland: один объект слоя 20, градиентный
   assert.equal(gradients.length, 2, 'мягкий ореол и объёмное ядро');
   assert.ok(arcs.some((call) => Math.abs(call.args[2] - GARLAND_CORE_RADIUS * 4) < 1e-9));
   assert.ok(arcs.some((call) => Math.abs(call.args[2] - GARLAND_CORE_RADIUS) < 1e-9));
-  assert.ok(stops.includes('rgba(255, 176, 64, 0)'), 'ореол растворяется в край');
+  assert.ok(
+    stops.includes(transparentEdge(new Date(999).getDay())),
+    'ореол растворяется в прозрачный край палитры выбранного дня',
+  );
   assert.ok(stops.includes('#fffdf2'), 'блик верх-слева');
 
   // Блик смещён влево-вверх от центра ядра (источник света общий для сцены).
@@ -311,7 +371,7 @@ test('агрегат: чистые полные десятки и остаток
   assert.deepEqual(aggregateOf(NaN), { tens: 0, remainder: 0 });
   assert.deepEqual(
     normalizeGarlandState({ count: 11, seed: 1 }),
-    { count: 11, tens: 1, remainder: 1 },
+    { count: 11, tens: 1, remainder: 1, seed: 1 },
     'нет агрегата в ответе — выводим его из count',
   );
 });
@@ -371,19 +431,98 @@ test('кадр гирлянды: десять входов — один боль
     'большой огонёк — тот же шар: ореол + ядро',
   );
 
-  const eleven = garlandFrame({ count: 11, seed: 1, tens: 1, remainder: 1 });
+  const state11 = (seed) => ({ count: 11, seed, tens: 1, remainder: 1 });
+  const eleven = garlandFrame(state11(1));
   assert.deepEqual(coreRadii(eleven.ctx).sort(byRadius), [GARLAND_CORE_RADIUS, GARLAND_BIG_RADIUS]);
-  const again = garlandFrame({ count: 11, seed: 999, tens: 1, remainder: 1 });
-  const positions = (ctx) => callsNamed(ctx, 'arc').map((call) => [call.args[0], call.args[1]]);
-  assert.deepEqual(positions(eleven.ctx), positions(again.ctx), 'раскладка детерминирована по номеру слота');
+
+  // Один seed — одна и та же картинка на обоих кадрах (позиции и цвета).
+  const again = garlandFrame(state11(1));
+  assert.deepEqual(lightPositions(again.ctx), lightPositions(eleven.ctx), 'повтор seed → те же позиции');
+  assert.deepEqual(coreColors(again.ctx), coreColors(eleven.ctx), 'повтор seed → те же цвета');
+
+  // Разные seed в один день недели: раскладка другая, число и радиусы те же.
+  const [daySeed, otherSeed] = seedsOfSameDay();
+  const first = garlandFrame(state11(daySeed));
+  const second = garlandFrame(state11(otherSeed));
+  assert.deepEqual(coreRadii(first.ctx), coreRadii(second.ctx), 'число и радиусы от seed не зависят');
+  assert.notDeepEqual(lightPositions(first.ctx), lightPositions(second.ctx), 'разные seed → разные позиции');
 
   // Новое состояние приходит в уже зарегистрированный объект.
-  ten.garland.setState({ count: 11, seed: 1, tens: 1, remainder: 1 });
+  ten.garland.setState(state11(1));
   const updated = createMockCtx();
   ten.contract.draw(updated, 1280, 800, 0);
   assert.equal(ten.contract.size, 1, 'второй регистрации нет');
   assert.deepEqual(coreRadii(updated).sort(byRadius), [GARLAND_CORE_RADIUS, GARLAND_BIG_RADIUS]);
-  assert.deepEqual(ten.garland.state, { count: 11, tens: 1, remainder: 1 });
+  assert.deepEqual(ten.garland.state, { count: 11, tens: 1, remainder: 1, seed: 1 });
+});
+
+test('garland-layout: чистая раскладка по seed и палитра по дню недели', () => {
+  const [seed, otherSeed] = seedsOfSameDay();
+  assert.deepEqual(slotPlacement(seed, 0), slotPlacement(seed, 0), 'повтор вызова — тот же результат');
+  assert.notDeepEqual(slotPlacement(seed, 0), slotPlacement(otherSeed, 0), 'разные seed — разные точки');
+
+  for (let slot = 0; slot < 20; slot += 1) {
+    const { tier, row, across, shade } = slotPlacement(seed, slot);
+    assert.ok(Number.isInteger(tier) && tier >= 0 && tier < GARLAND_TIER_COUNT, 'ярус в границах ёлки');
+    assert.ok(Number.isInteger(row) && row >= 0 && row < GARLAND_ROW_COUNT, 'ряд в границах яруса');
+    assert.ok(across >= -1 && across <= 1, 'поперёк внутри яруса');
+    assert.ok(shade >= 0 && shade <= 1, 'оттенок в границах');
+  }
+
+  assert.equal(dayIndexFor(seed), new Date(seed).getDay(), 'день по местному времени браузера');
+  for (let day = 0; day < GARLAND_DAY_COLORS.length; day += 1) {
+    assert.equal(dayColor(seed, day), GARLAND_DAY_COLORS[day], `палитра дня ${day}`);
+  }
+  const palette = lightPalette(seed, 0, 1);
+  assert.deepEqual(lightPalette(seed, 0, 1), palette, 'палитра чистая');
+  assert.equal(palette.haloFar, transparentEdge(1), 'прозрачный край — цвет дня');
+  assert.notEqual(lightPalette(seed, 1, 1).core, palette.core, 'оттенок зависит от номера огонька');
+});
+
+test('цвет огоньков: день недели меняет палитру, оттенки детерминированно различаются', () => {
+  const [firstSeed, otherSeed] = seedsOfDifferentDays();
+  const firstDay = new Date(firstSeed).getDay();
+  const otherDay = new Date(otherSeed).getDay();
+  const frameFor = (seed) => garlandFrame({
+    count: 25,
+    seed,
+    tens: 2,
+    remainder: 5,
+  });
+  const first = frameFor(firstSeed);
+  const other = frameFor(otherSeed);
+
+  for (const [ctx, day] of [[first.ctx, firstDay], [other.ctx, otherDay]]) {
+    const stops = callsNamed(ctx, 'addColorStop').map((call) => call.args[1]);
+    assert.ok(stops.includes(transparentEdge(day)), `прозрачный край палитры дня ${day}`);
+    const colors = coreColors(ctx);
+    assert.equal(colors.length, 7, 'по одному цвету ядра на огонёк');
+    assert.ok(new Set(colors).size > 1, 'оттенки огоньков различаются');
+    const baseHue = hueOf(GARLAND_DAY_COLORS[day]);
+    for (const color of colors) {
+      assert.ok(Math.abs(hueOf(color) - baseHue) < 12, `${color} — оттенок дня ${day}`);
+    }
+  }
+  assert.notDeepEqual(coreColors(first.ctx), coreColors(other.ctx), 'другой день — другая палитра');
+  assert.deepEqual(coreRadii(first.ctx), coreRadii(other.ctx), 'радиусы от дня недели не зависят');
+});
+
+test('новый seed из опроса: та же гирлянда рисует новую раскладку', () => {
+  const [seed, nextSeed] = seedsOfSameDay();
+  const state = { count: 11, seed, tens: 1, remainder: 1 };
+  const contract = createSceneContract();
+  const garland = registerGarland(contract, 0, null, state);
+  const before = createMockCtx();
+  contract.draw(before, 1280, 800, 0);
+
+  garland.setState({ ...state, seed: nextSeed });
+  const after = createMockCtx();
+  contract.draw(after, 1280, 800, 0);
+
+  assert.equal(contract.size, 1, 'второй регистрации нет');
+  assert.equal(garland.state.seed, nextSeed, 'seed обновлён');
+  assert.deepEqual(coreRadii(after), coreRadii(before), 'число и радиусы те же');
+  assert.notDeepEqual(lightPositions(after), lightPositions(before), 'новая раскладка на том же объекте');
 });
 
 test('сияние ёлки: 300 входов — тёплый градиент вокруг ёлки, при 299 его нет', () => {
@@ -474,7 +613,7 @@ test('две вкладки: GET-опрос доносит тот же агре�
   assert.equal(firstDoc.counter.textContent, '11');
   assert.equal(secondDoc.counter.textContent, '11');
   assert.deepEqual(firstGarland.state, secondGarland.state);
-  assert.deepEqual(secondGarland.state, { count: 11, tens: 1, remainder: 1 });
+  assert.deepEqual(secondGarland.state, { count: 11, tens: 1, remainder: 1, seed: own.seed });
   assert.equal(firstContract.size, 1, 'в первой вкладке одна гирлянда');
   assert.equal(secondContract.size, 1, 'во второй вкладке одна гирлянда');
 
@@ -490,8 +629,9 @@ test('деградация без сервера: гирлянда держит 
   assert.equal(await fetchVisit(failingFetch), null);
 
   const contract = createSceneContract();
-  const garland = registerGarland(contract, Date.now());
-  assert.deepEqual(garland.state, { count: 1, tens: 0, remainder: 1 });
+  const localSeed = 12345;
+  const garland = registerGarland(contract, localSeed);
+  assert.deepEqual(garland.state, { count: 1, tens: 0, remainder: 1, seed: localSeed });
   const ctx = createMockCtx();
   contract.draw(ctx, 1280, 800, 0);
   assert.deepEqual(coreRadii(ctx), [GARLAND_CORE_RADIUS], 'одинокий огонёк story 2.1');
@@ -541,18 +681,18 @@ test('агрегат сверяется с count: рассогласованны
   );
   assert.deepEqual(
     normalizeGarlandState(inconsistent),
-    { count: 11, tens: 1, remainder: 1 },
+    { count: 11, tens: 1, remainder: 1, seed: 5 },
     'гирлянда вывела агрегат из count',
   );
 
   const consistent = { count: 21, seed: 5, tens: 2, remainder: 1 };
   assert.deepEqual(await fetchVisit(() => stub(consistent)), consistent, 'согласованный агрегат прошёл');
-  assert.deepEqual(normalizeGarlandState(consistent), { count: 21, tens: 2, remainder: 1 });
+  assert.deepEqual(normalizeGarlandState(consistent), { count: 21, tens: 2, remainder: 1, seed: 5 });
 
   const contract = createSceneContract();
   const garland = registerGarland(contract, 1, null, inconsistent);
   const ctx = createMockCtx();
   contract.draw(ctx, 1280, 800, 0);
-  assert.deepEqual(garland.state, { count: 11, tens: 1, remainder: 1 });
+  assert.deepEqual(garland.state, { count: 11, tens: 1, remainder: 1, seed: 5 });
   assert.deepEqual(coreRadii(ctx).sort(byRadius), [GARLAND_CORE_RADIUS, GARLAND_BIG_RADIUS]);
 });

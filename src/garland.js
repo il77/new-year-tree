@@ -1,8 +1,16 @@
-// Общая гирлянда (story 2.1 + 2.2): один объект контракта слоем 20 рисует
-// столько больших огоньков, сколько полных десятков визитов, и остаток
-// мелкими — по геометрии ярусов ёлки из src/world.js. При count >= 300
+// Общая гирлянда (story 2.1 + 2.2 + 2.3): один объект контракта слоем 20
+// рисует столько больших огоньков, сколько полных десятков визитов, и остаток
+// мелкими — по геометрии ярусов ёлки из src/world.js. Раскладку и цвет дня
+// даёт чистый модуль src/garland-layout.js по seed сервера. При count >= 300
 // добавляется мягкое тёплое сияние вокруг всей ёлки. Один объект, один
 // rAF-цикл контракта, никаких fillRect и второй регистрации.
+
+import {
+  GARLAND_HIGHLIGHT,
+  GARLAND_ROW_COUNT,
+  lightPalette,
+  slotPlacement,
+} from './garland-layout.js';
 
 /**
  * Слой гирлянды: поверх ёлки (слой 10) и слоёв мира (5/8).
@@ -25,15 +33,6 @@ export const GARLAND_GLOW_STOPS = [
   [1, 'rgba(255,180,90,0)'],
 ];
 
-export const GARLAND_COLORS = {
-  highlight: '#fffdf2',
-  core: '#ffc45c',
-  shade: '#b46a1e',
-  haloNear: 'rgba(255, 226, 156, 0.85)',
-  haloMid: 'rgba(255, 198, 96, 0.32)',
-  haloFar: 'rgba(255, 176, 64, 0)',
-};
-
 /** Безопасный локальный набор при недоступном сервере: одинокий огонёк 2.1. */
 const LOCAL_STATE = Object.freeze({ count: 1, tens: 0, remainder: 1 });
 
@@ -41,22 +40,28 @@ const LOCAL_STATE = Object.freeze({ count: 1, tens: 0, remainder: 1 });
  * Приводит ответ сервера (или локальный стаб) к состоянию гирлянды. Поля
  * tens/remainder необязательны: если их нет, они битые или не согласованы
  * с count, агрегат выводится из count — клиент не должен терять состояние
- * старого сервера и рисовать огоньки чужого счётчика.
+ * старого сервера и рисовать огоньки чужого счётчика. Seed из ответа
+ * становится частью состояния; без него сохраняется seed регистрации (или
+ * предыдущий seed при обновлении через setState).
  *
- * @param {{count?: number, tens?: number, remainder?: number} | null} visit
- * @returns {{count: number, tens: number, remainder: number}}
+ * @param {{count?: number, seed?: number, tens?: number, remainder?: number} | null} visit
+ * @param {number} [fallbackSeed] seed, если в ответе его нет
+ * @returns {{count: number, tens: number, remainder: number, seed: number}}
  */
-export function normalizeGarlandState(visit) {
+export function normalizeGarlandState(visit, fallbackSeed = 0) {
   const count = Number.isFinite(visit?.count) && visit.count >= 0
     ? Math.floor(visit.count)
     : 0;
+  const seed = Number.isFinite(visit?.seed)
+    ? Math.trunc(visit.seed)
+    : (Number.isFinite(fallbackSeed) ? Math.trunc(fallbackSeed) : 0);
   const hasAggregate =
     Number.isInteger(visit?.tens) && visit.tens >= 0 &&
     Number.isInteger(visit?.remainder) && visit.remainder >= 0 && visit.remainder < 10 &&
     visit.tens === Math.floor(count / 10) && visit.remainder === count % 10;
   return hasAggregate
-    ? { count, tens: visit.tens, remainder: visit.remainder }
-    : { count, tens: Math.floor(count / 10), remainder: count % 10 };
+    ? { count, tens: visit.tens, remainder: visit.remainder, seed }
+    : { count, tens: Math.floor(count / 10), remainder: count % 10, seed };
 }
 
 /**
@@ -87,23 +92,22 @@ function treeGeometry(width, height, rise = 0) {
 }
 
 /**
- * Позиция огонька по номеру слота: детерминированно (story 2.3 заменяет
- * эту раскладку на seed). Ярусы чередуются снизу вверх, внутри яруса —
- * семь точек поперёк, ряды сдвигают огонёк вниз по подолу.
+ * Позиция огонька внутри яруса по хешу (seed, slot): ярус, ряд и положение
+ * поперёк приходят из чистого src/garland-layout.js. Границы ярусов и
+ * доступные ряды не меняются — огонёк остаётся внутри силуэта ёлки.
  *
  * @param {ReturnType<typeof treeGeometry>} geo геометрия ёлки
+ * @param {number} seed seed визита
  * @param {number} slot порядковый номер огонька
  * @returns {{x: number, y: number}}
  */
-function lightPoint(geo, slot) {
-  const SLOTS_ACROSS = 7;
-  const tier = geo.tiers[slot % geo.tiers.length];
-  const row = Math.floor(slot / geo.tiers.length);
-  const across = ((slot % SLOTS_ACROSS) / (SLOTS_ACROSS - 1)) * 2 - 1;
-  const down = 0.3 + 0.4 * ((row % 3) / 2);
+function lightPoint(geo, seed, slot) {
+  const { tier, row, across } = slotPlacement(seed, slot);
+  const support = geo.tiers[tier % geo.tiers.length];
+  const down = 0.3 + 0.4 * (row / (GARLAND_ROW_COUNT - 1));
   return {
-    x: geo.cx + across * tier.hw * down * 0.8,
-    y: tier.topY + (tier.bottomY - tier.topY) * down,
+    x: geo.cx + across * support.hw * down * 0.8,
+    y: support.topY + (support.bottomY - support.topY) * down,
   };
 }
 
@@ -115,14 +119,15 @@ function lightPoint(geo, slot) {
  * @param {number} x центр огонька
  * @param {number} y центр огонька
  * @param {number} r радиус ядра
+ * @param {ReturnType<typeof lightPalette>} palette цвета этого огонька
  * @returns {void}
  */
-function drawLight(ctx, x, y, r) {
+function drawLight(ctx, x, y, r, palette) {
   const haloR = r * GARLAND_HALO_SCALE;
   const halo = ctx.createRadialGradient(x, y, 0, x, y, haloR);
-  halo.addColorStop(0, GARLAND_COLORS.haloNear);
-  halo.addColorStop(0.45, GARLAND_COLORS.haloMid);
-  halo.addColorStop(1, GARLAND_COLORS.haloFar);
+  halo.addColorStop(0, palette.haloNear);
+  halo.addColorStop(0.45, palette.haloMid);
+  halo.addColorStop(1, palette.haloFar);
   ctx.beginPath();
   ctx.arc(x, y, haloR, 0, Math.PI * 2);
   ctx.fillStyle = halo;
@@ -137,9 +142,9 @@ function drawLight(ctx, x, y, r) {
     y,
     r,
   );
-  core.addColorStop(0, GARLAND_COLORS.highlight);
-  core.addColorStop(0.35, GARLAND_COLORS.core);
-  core.addColorStop(1, GARLAND_COLORS.shade);
+  core.addColorStop(0, GARLAND_HIGHLIGHT);
+  core.addColorStop(0.35, palette.core);
+  core.addColorStop(1, palette.shade);
   ctx.beginPath();
   ctx.arc(x, y, r, 0, Math.PI * 2);
   ctx.fillStyle = core;
@@ -172,7 +177,7 @@ function drawGlow(ctx, geo) {
  * @param {CanvasRenderingContext2D} ctx 2D-контекст
  * @param {number} width ширина кадра
  * @param {number} height высота кадра
- * @param {{count: number, tens: number, remainder: number}} state агрегат
+ * @param {{count: number, tens: number, remainder: number, seed: number}} state агрегат
  * @param {number} [treeAlpha] прогресс проявления ёлки; без аргумента = 1
  * @returns {void}
  */
@@ -182,12 +187,12 @@ function drawGarland(ctx, width, height, state, treeAlpha = 1) {
   if (state.count >= GARLAND_GLOW_COUNT) drawGlow(ctx, geo);
   let slot = 0;
   for (let i = 0; i < state.tens; i += 1, slot += 1) {
-    const { x, y } = lightPoint(geo, slot);
-    drawLight(ctx, x, y, GARLAND_BIG_RADIUS);
+    const { x, y } = lightPoint(geo, state.seed, slot);
+    drawLight(ctx, x, y, GARLAND_BIG_RADIUS, lightPalette(state.seed, slot));
   }
   for (let i = 0; i < state.remainder; i += 1, slot += 1) {
-    const { x, y } = lightPoint(geo, slot);
-    drawLight(ctx, x, y, GARLAND_CORE_RADIUS);
+    const { x, y } = lightPoint(geo, state.seed, slot);
+    drawLight(ctx, x, y, GARLAND_CORE_RADIUS, lightPalette(state.seed, slot));
   }
 }
 
@@ -196,19 +201,19 @@ function drawGarland(ctx, width, height, state, treeAlpha = 1) {
  * возвращает хэндл для обновления его состояния из ответа сервера.
  *
  * @param {{ register: Function }} contract контракт рендера (src/contract.js)
- * @param {number} seed seed визита; пока не влияет на координаты — его
- *   потребитель появится в story 2.3 (раскладка по дате)
+ * @param {number} [seed] seed-заглушка до ответа сервера: регистрация
+ *   происходит один раз, а seed из POST/GET приходит через setState
+ *   в тот же объект
  * @param {(t: number) => { layers: { tree: number } }} [progressAt]
  *   прогресс ритуала; гирлянда не рисуется, пока ёлки нет (tree <= 0).
  *   Без аргумента рисуется всегда — для изолированных тестов.
- * @param {{count?: number, tens?: number, remainder?: number} | null} [initialState]
+ * @param {{count?: number, seed?: number, tens?: number, remainder?: number} | null} [initialState]
  *   начальный агрегат; без него — безопасный локальный набор story 2.1
  * @returns {{setState: (visit: object) => void, readonly state: object}}
  *   хэндл уже зарегистрированной гирлянды (второй регистрации нет)
  */
 export function registerGarland(contract, seed = 0, progressAt = null, initialState = null) {
-  void seed; // Осознанно: раскладка по seed — story 2.3.
-  let state = normalizeGarlandState(initialState ?? LOCAL_STATE);
+  let state = normalizeGarlandState(initialState ?? LOCAL_STATE, seed);
   contract.register(
     (ctx, width, height, t) => {
       let treeAlpha = 1;
@@ -222,9 +227,9 @@ export function registerGarland(contract, seed = 0, progressAt = null, initialSt
     { layer: GARLAND_LAYER },
   );
   return {
-    /** Принять новый агрегат в тот же объект сцены. */
+    /** Принять новый агрегат и seed в тот же объект сцены. */
     setState(next) {
-      state = normalizeGarlandState(next);
+      state = normalizeGarlandState(next, state.seed);
     },
     /** Снимок текущего состояния (для тестов и отладки). */
     get state() {
