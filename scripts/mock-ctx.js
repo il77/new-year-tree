@@ -5,6 +5,8 @@
 // вызовов и не меняет утверждения тестов. Стабы страницы (createHarness и
 // хранилища) остаются в своих файлах: они различаются по сценариям.
 
+import { BACKGROUND } from '../src/scene.js';
+
 /**
  * Мок-2D-контекст: фиксирует вызовы отрисовки без jsdom/canvas-зависимостей.
  *
@@ -72,4 +74,22 @@ export function frameCalls(ctx, fromIndex) {
  *  снежинки и крупную тень-эллипс ёлки радиуса > 100). */
 export function sparkArcsIn(calls) {
   return calls.filter((c) => c.name === 'arc' && c.args[2] > 10 && c.args[2] < 30);
+}
+
+/**
+ * Фоновые кадры: прямоугольники, которым предшествовал `fillStyle = BACKGROUND`.
+ * Счёт по цвету фона, а не по факту `fillRect`: легальный прямоугольник
+ * будущего слоя (маска, атмосферная полоса) за кадр не считается.
+ *
+ * @param {Array<{name: string, args: Array}>} calls записанные вызовы мока
+ * @returns {Array<{name: string, args: Array}>} вызовы фонового fillRect
+ */
+export function backgroundRectsIn(calls) {
+  let color;
+  const frames = [];
+  for (const call of calls) {
+    if (call.name === 'fillStyle') color = call.args[0];
+    else if (call.name === 'fillRect' && color === BACKGROUND) frames.push(call);
+  }
+  return frames;
 }

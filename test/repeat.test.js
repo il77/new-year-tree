@@ -21,7 +21,13 @@ import {
   PHASE_REVEALED,
 } from '../src/ritual.js';
 import { registerWorld, WORLD_COLORS } from '../src/world.js';
-import { createMockCtx, callsNamed, frameCalls, sparkArcsIn } from '../scripts/mock-ctx.js';
+import {
+  createMockCtx,
+  callsNamed,
+  frameCalls,
+  sparkArcsIn,
+  backgroundRectsIn,
+} from '../scripts/mock-ctx.js';
 
 /**
  * localStorage-стаб с живым значением: setItem реально меняет getItem —
@@ -247,13 +253,13 @@ test('repeat: живая сцена — bootstrap планирует ровно 
   attachWorld(contract, ritual);
   render(); // на странице после bootstrap идёт page.render() — тот же тик
 
-  // Каждый render — ровно один fillRect фона; лишних кадров нет.
-  // Точный счёт осознанный: при добавлении fillRect-слоёв в эпики 2–4
-  // числа обновляются здесь намеренно (маркер — присваивание fillStyle
-  // фона в renderFrame), а не тихо. Кадры живой сцены (цикл rAF) в счёт
-  // не входят — очередь НЕ flush-ится, цикл проверяется отдельно в
-  // test/live.test.js.
-  assert.equal(callsNamed(h.ctx, 'fillRect').length, 2, 'два статичных кадра: bootstrap + регистрация мира');
+  // Каждый render — ровно один фоновый кадр; лишних кадров нет. Считаем
+  // прямоугольники по цвету фона (маркер — fillStyle = BACKGROUND), а не
+  // любой fillRect: легальный прямоугольник будущего слоя не должен ломать
+  // тест повторного входа. Кадры живой сцены (цикл rAF) в счёт не входят —
+  // очередь НЕ flush-ится, цикл проверяется отдельно в test/live.test.js.
+  const backgroundFrames = () => backgroundRectsIn(h.ctx.calls).length;
+  assert.equal(backgroundFrames(), 2, 'два статичных кадра: bootstrap + регистрация мира');
 
   // Ровно один цикл живой сцены (story 1.5) — и он не растёт от событий:
   // семантика «касания не порождают цикл/кадры» из 1.4 сохранена.
@@ -263,10 +269,10 @@ test('repeat: живая сцена — bootstrap планирует ровно 
   h.sceneListeners.pointerdown();
   h.sceneListeners.mousedown();
   assert.equal(h.rafQueue.length, queueAfterStart, 'очередь не выросла после касаний');
-  assert.equal(callsNamed(h.ctx, 'fillRect').length, 2, 'касания не породили кадров');
+  assert.equal(backgroundFrames(), 2, 'касания не породили кадров');
 
   h.winListeners.resize({ type: 'resize' });
-  assert.equal(callsNamed(h.ctx, 'fillRect').length, 3, 'resize — один статичный кадр');
+  assert.equal(backgroundFrames(), 3, 'resize — один статичный кадр');
   assert.equal(h.rafQueue.length, queueAfterStart, 'resize не добавил кадров в цикл');
   assert.equal(ritual.phase, PHASE_REVEALED, 'фаза не сдвинулась');
 });

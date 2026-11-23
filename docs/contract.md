@@ -44,7 +44,7 @@ sceneContract.register(draw, { layer: 20 });
 page.render(); // объект на экране сразу после регистрации
 ```
 
-`bootstrap(doc, win)` возвращает тот же объект `{ render, contract, ritual }`
+`bootstrap(doc, win, contract?)` возвращает тот же объект `{ render, contract, ritual }`
 (`ritual` — контроллер ритуала первого входа, story 1.3; контракту не нужен),
 поэтому вне страницы (в тестах, где `page === null`) кадр вызывается
 явно: `const { render } = bootstrap(doc, win, contract); …; render();`.

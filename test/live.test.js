@@ -29,7 +29,12 @@ import {
   PHASE_REVEALED,
 } from '../src/ritual.js';
 import { registerWorld, drawTree, FLAKES, TREE_LIGHTS, WORLD_COLORS } from '../src/world.js';
-import { createMockCtx, callsNamed } from '../scripts/mock-ctx.js';
+import {
+  createMockCtx,
+  callsNamed,
+  sparkArcsIn,
+  backgroundRectsIn,
+} from '../scripts/mock-ctx.js';
 
 /** Методы трансформации камеры — проверяются по отдельности. */
 const TRANSFORM_CALLS = ['save', 'translate', 'rotate', 'scale', 'restore'];
@@ -62,6 +67,7 @@ function createHarness({
   docEvents = true,
   winEvents = true,
   hiddenProp = true,
+  hasPerformance = true,
 } = {}) {
   const ctx = createMockCtx();
   const sceneListeners = {};
@@ -102,7 +108,9 @@ function createHarness({
       return rafQueue.length;
     };
   }
-  win.performance = { now: () => clock };
+  // hasPerformance: false — стаб без win.performance: bootstrap должен
+  // упасть на фолбэк Date.now() (проверяется подставленными часами).
+  if (hasPerformance) win.performance = { now: () => clock };
 
   const doc = {
     getElementById: (id) => elements[id] ?? null,
@@ -260,6 +268,148 @@ test('live: renderFrame — t=0 без transform (старый статичны�
     (CONTENT_OVERSCAN - 1) * 400 > worstPull,
     'запас overscan больше худшего отъезда края по вертикали',
   );
+});
+
+test('live: камера — четыре угла контента вне видимой области по фактическим transform-вызовам', () => {
+  const width = 1280;
+  const height = 800;
+  const corners = [
+    [0, 0],
+    [width, 0],
+    [0, height],
+    [width, height],
+  ];
+
+  // Canvas умножает CTM справа: translate → rotate → scale → translate
+  // применяются к точке в ОБРАТНОМ порядке (последний вызов — первый шаг).
+  const screenPoint = (calls, [x, y]) => {
+    for (let i = calls.length - 1; i >= 0; i -= 1) {
+      const call = calls[i];
+      if (call.name === 'translate') {
+        x += call.args[0];
+        y += call.args[1];
+      } else if (call.name === 'rotate') {
+        const angle = call.args[0];
+        [x, y] = [
+          x * Math.cos(angle) - y * Math.sin(angle),
+          x * Math.sin(angle) + y * Math.cos(angle),
+        ];
+      } else if (call.name === 'scale') {
+        x *= call.args[0];
+        y *= call.args[1];
+      }
+    }
+    return { x, y };
+  };
+
+  // Несколько разных t: сдвиг/поворот/дыхание входят в разные фазы синусов.
+  for (const t of [1375, 2750, 5500, 8250, 11000, 15500, 23250]) {
+    const ctx = createMockCtx();
+    const contract = createSceneContract();
+    contract.register(() => {});
+    renderFrame(ctx, width, height, t, contract);
+
+    const transforms = ctx.calls.filter((call) =>
+      call.name === 'translate' || call.name === 'rotate' || call.name === 'scale',
+    );
+    assert.deepEqual(
+      transforms.map((call) => call.name),
+      ['translate', 'rotate', 'scale', 'translate'],
+      `t=${t}: последовательность трансформаций камеры`,
+    );
+    const camera = cameraAt(t);
+    assert.deepEqual(
+      transforms[0].args,
+      [width / 2 + camera.dxRatio * width, height / 2 + camera.dyRatio * height],
+      `t=${t}: первый translate — из cameraAt(t)`,
+    );
+    assert.equal(transforms[1].args[0], camera.rotation, `t=${t}: поворот из cameraAt(t)`);
+    assert.equal(
+      transforms[2].args[0],
+      camera.scale * CONTENT_OVERSCAN,
+      `t=${t}: масштаб с запасом overscan`,
+    );
+    assert.deepEqual(transforms[3].args, [-width / 2, -height / 2], `t=${t}: возврат к центру`);
+
+    for (const corner of corners) {
+      const screen = screenPoint(transforms, corner);
+      assert.ok(
+        screen.x < 0 || screen.x > width || screen.y < 0 || screen.y > height,
+        `t=${t}: угол (${corner.join(', ')}) за пределами кадра, а не внутри: ${screen.x.toFixed(1)}, ${screen.y.toFixed(1)}`,
+      );
+    }
+  }
+});
+
+test('live: порядок кадра — фон по цвету, save до искры/контракта, restore после', () => {
+  const ctx = createMockCtx();
+  const contract = createSceneContract();
+  let contractDrawAt = -1;
+  contract.register((c) => {
+    contractDrawAt = c.calls.length;
+    c.beginPath();
+  }, { layer: 20 });
+
+  renderFrame(ctx, 1280, 800, 4000, contract);
+  const calls = ctx.calls;
+  const background = backgroundRectsIn(calls);
+  assert.equal(background.length, 1, 'ровно один фон, опознанный по цвету');
+  assert.deepEqual(background[0].args, [0, 0, 1280, 800], 'фон на весь кадр');
+
+  const indicesOf = (name) => calls.flatMap((call, i) => (call.name === name ? [i] : []));
+  const [saveAt] = indicesOf('save');
+  const [restoreAt] = indicesOf('restore');
+  const spark = sparkArcsIn(calls)[0];
+  assert.equal(indicesOf('save').length, 1, 'один save на кадр');
+  assert.equal(indicesOf('restore').length, 1, 'один restore на кадр');
+  assert.ok(spark, 'искра нарисована');
+  const sparkAt = calls.indexOf(spark);
+  assert.ok(calls.indexOf(background[0]) < saveAt, 'фон залит до save');
+  assert.ok(saveAt < sparkAt, 'save предшествует искре');
+  assert.ok(saveAt < contractDrawAt, 'save предшествует объекту контракта');
+  assert.ok(contractDrawAt < restoreAt, 'объект контракта нарисован до restore');
+  assert.ok(sparkAt < restoreAt, 'искра нарисована до restore');
+});
+
+test('live: без win.performance — камера и ритуал идут по подставленному Date.now()', () => {
+  const h = createHarness({ storage: createSharedStorage(null), hasPerformance: false });
+  assert.equal(h.win.performance, undefined, 'стаб действительно без performance');
+  const contract = createSceneContract();
+  const realNow = Date.now;
+  let stubbedNow = 0;
+  Date.now = () => stubbedNow;
+  try {
+    const { ritual } = bootstrap(h.doc, h.win, contract);
+    assert.equal(ritual.phase, PHASE_DARK, 'первый вход — темнота');
+
+    stubbedNow = 1000;
+    h.sceneListeners.pointerdown();
+    assert.equal(ritual.startedAt, 1000, 'ритуал стартовал по Date.now()');
+    assert.equal(h.rafQueue.length, 1, 'цикл запущен');
+
+    stubbedNow = 1500;
+    const mark = h.ctx.calls.length;
+    assert.ok(h.flushFrame(), 'кадр по подставленному времени');
+    const frame = h.ctx.calls.slice(mark);
+    const [cameraTranslate] = frame.filter((call) => call.name === 'translate');
+    const camera = cameraAt(1500);
+    assert.deepEqual(
+      cameraTranslate.args,
+      [640 + camera.dxRatio * 1280, 400 + camera.dyRatio * 800],
+      'камера кадра использует Date.now()',
+    );
+    assert.equal(ritual.phase, PHASE_FALLING, 'ритуал идёт по Date.now()');
+    const [spark] = sparkArcsIn(frame);
+    assert.ok(spark, 'искра в кадре');
+    assert.equal(spark.args[0], 640, 'искра по центру горизонтали');
+    assert.equal(
+      spark.args[1],
+      ritual.progress(1500).spark.yRatio * 800,
+      'искра использует прогресс ритуала от Date.now()',
+    );
+  } finally {
+    Date.now = realNow;
+  }
 });
 
 // --- Единый цикл: повторный вход --------------------------------------------
