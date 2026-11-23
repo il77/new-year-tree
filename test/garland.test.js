@@ -150,6 +150,13 @@ function hueOf(hex) {
   return (h / 6) * 360;
 }
 
+/** Светлота hex-цвета в процентах — для проверки разброса огоньков. */
+function lightnessOf(hex) {
+  const n = Number.parseInt(hex.slice(1), 16);
+  const channels = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) => v / 255);
+  return ((Math.max(...channels) + Math.min(...channels)) / 2) * 100;
+}
+
 /** Два seed одного местного дня (полдень UTC + секунда — вне смены даты). */
 function seedsOfSameDay() {
   const base = Date.UTC(2026, 0, 1, 12);
@@ -477,6 +484,12 @@ test('garland-layout: чистая раскладка по seed и палитр�
   assert.deepEqual(lightPalette(seed, 0, 1), palette, 'палитра чистая');
   assert.equal(palette.haloFar, transparentEdge(1), 'прозрачный край — цвет дня');
   assert.notEqual(lightPalette(seed, 1, 1).core, palette.core, 'оттенок зависит от номера огонька');
+
+  const cores = Array.from({ length: 20 }, (_, slot) => lightPalette(seed, slot, 1).core);
+  const lightness = cores.map(lightnessOf);
+  assert.ok(Math.max(...lightness) - Math.min(...lightness) > 15, 'разброс светлоты заметен');
+  const hues = cores.map(hueOf);
+  assert.ok(Math.max(...hues) - Math.min(...hues) > 10, 'разброс оттенка заметен');
 });
 
 test('цвет огоньков: день недели меняет палитру, оттенки детерминированно различаются', () => {

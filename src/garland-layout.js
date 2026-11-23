@@ -144,9 +144,10 @@ function rgba(hex, alpha) {
 }
 
 /**
- * Палитра одного огонька: цвет дня с небольшим детерминированным разбросом
+ * Палитра одного огонька: цвет дня с заметным детерминированным разбросом
  * по номеру слота, три стопа ореола того же дня и затенённый край шара.
- * Ореол и блик остаются общими для сцены по направлению и числу стопов.
+ * Ближний и средний стопы ореола берут цвет этого огонька, прозрачный край
+ * остаётся цветом дня; блик по-прежнему общий для сцены.
  *
  * @param {number} seed seed визита
  * @param {number} slot порядковый номер огонька
@@ -157,13 +158,15 @@ export function lightPalette(seed, slot, dayIndex) {
   const base = dayColor(seed, dayIndex);
   const { shade } = slotPlacement(seed, slot);
   const { h, s, l } = hexToHsl(base);
-  // Разброс ±4 п.п. по светлоте: оттенки различимы, но все из семейства дня.
-  const spread = (shade - 0.5) * 8;
+  // Разброс ±12 п.п. по светлоте и ±9° по оттенку: огоньки явно разные,
+  // но остаются в тёплом семействе выбранного дня (решение человека 2026-11-23).
+  const spread = (shade - 0.5) * 24;
+  const core = hslToHex(h + spread * 0.8, s + spread * 0.5, l + spread);
   return {
-    core: hslToHex(h, s + spread * 0.5, l + spread),
-    shade: hslToHex(h, s, Math.max(0, l - 26)),
-    haloNear: rgba(base, 0.85),
-    haloMid: rgba(base, 0.32),
+    core,
+    shade: hslToHex(h + spread * 0.8, s, Math.max(0, l - 26 + spread * 0.5)),
+    haloNear: rgba(core, 0.85),
+    haloMid: rgba(core, 0.32),
     haloFar: rgba(base, 0),
   };
 }
