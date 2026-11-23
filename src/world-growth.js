@@ -2,11 +2,12 @@
 // приходит из epic-garland, здесь из него растут новые слои сцены. Города на
 // горизонте открываются при счётчике ≥ 10 (слой 6, под лесом и ёлкой), ряд
 // маленьких машущих фигур у подножия — при ≥ 30 (слой 9, по бокам от ёлки,
-// центральную гирлянду и звезду не закрывает). Порог луча (60) объявлен
-// заранее, чтобы последующие story не меняли контракт. Модуль чистый: только
-// геометрия и ctx-вызовы, никаких таймеров, rAF, fetch, localStorage и
-// Math.random. Стиль — docs/style.md: скруглённые силуэты, градиентный объём,
-// блик верх-слева, мягкие тени, ни одного fillRect для объектов сцены.
+// центральную гирлянду и звезду не закрывает), мягкий тёплый луч из верхушки
+// ёлки в небо — при ≥ 60 (слой 15, между ёлкой 10 и гирляндой 20). Модуль
+// чистый: только геометрия и ctx-вызовы, никаких таймеров, rAF, fetch,
+// localStorage и Math.random. Стиль — docs/style.md: скруглённые силуэты,
+// градиентный объём, блик верх-слева, мягкие тени, ни одного fillRect для
+// объектов сцены.
 
 /** Пороги общего счётчика для слоёв мира (решение Сони 2026-11-23). */
 export const WORLD_GROWTH_THRESHOLDS = Object.freeze({
@@ -44,6 +45,10 @@ export const WORLD_GROWTH_COLORS = Object.freeze({
   figureShadowFar: 'rgba(4, 14, 26, 0)',
   waveWarm: '#ffd39a',
   waveWarmFar: 'rgba(255, 211, 154, 0)',
+  beamCore: '#fff3cf',
+  beamMid: 'rgba(255, 220, 150, 0.46)',
+  beamFar: 'rgba(255, 198, 110, 0)',
+  beamGlow: 'rgba(255, 235, 183, 0.6)',
 });
 
 /** База силуэтов — над снежным полем (0.78h) и лесом (0.74h), под ёлкой. */
@@ -96,6 +101,19 @@ const FIGURES = Object.freeze([
   { x: 0.85, scale: 0.92, phase: 2.1 },
   { x: 0.91, scale: 0.84, phase: 3.4 },
 ]);
+
+/**
+ * Геометрия верхушки ёлки — те же доли, что и в src/world.js (drawTree).
+ * Луч начинается ровно в ней, включая сдвиг при частичном проявлении.
+ */
+const TREE_BASE_RATIO = 0.8;
+const TREE_HEIGHT_RATIO = 0.44;
+const TREE_WIDTH_RATIO = 0.34;
+const TREE_RISE_RATIO = 0.015;
+/** Полуширина луча у верхушки — доля высоты ёлки. */
+const BEAM_HALF_RATIO = 0.13;
+/** Дыхание луча: sin(t / 1100), период ≈ 6.9 с. */
+const BEAM_BREATHE_SCALE = 1100;
 
 /**
  * Мягкое тёплое мерцание окна: 0.46..0.78, период ≈ 5.7 с, фаза по номеру
@@ -439,13 +457,125 @@ export function drawFigures(ctx, width, height, count, t = 0) {
 }
 
 /**
- * Регистрирует ровно два объекта на переданном контракте: города слоя 6 и
- * машущие фигуры слоя 9. Оба берут один и тот же счётчик из setCount (POST и
- * GET-опрос идут в один хэндл) и гаснут в тёмной фазе вместе с ёлкой.
+ * Мягкий скруглённый конус луча: бока — квадратичные кривые, оба конца
+ * округлены. Не острый треугольник и не прямоугольник (docs/style.md, R12).
+ * Путь только строится, заливку делает вызывающая сторона.
+ *
+ * @param {CanvasRenderingContext2D} ctx 2D-контекст (в тесте — мок)
+ * @param {number} cx центр по горизонтали
+ * @param {number} sourceY верхушка ёлки
+ * @param {number} farY далёкий конец луча
+ * @param {number} halfW полуширина у верхушки
+ * @returns {void}
+ */
+function beamPath(ctx, cx, sourceY, farY, halfW) {
+  const length = sourceY - farY;
+  const nearCap = halfW * 0.5;
+  const farCap = halfW * 0.8;
+  ctx.beginPath();
+  ctx.moveTo(cx, sourceY + nearCap);
+  ctx.quadraticCurveTo(cx - halfW * 0.6, sourceY + nearCap, cx - halfW * 0.85, sourceY - nearCap);
+  ctx.quadraticCurveTo(cx - halfW * 1.15, sourceY - length * 0.14, cx - halfW, farY + farCap);
+  ctx.quadraticCurveTo(cx - halfW * 0.75, farY - farCap * 0.5, cx, farY - farCap * 0.5);
+  ctx.quadraticCurveTo(cx + halfW * 0.75, farY - farCap * 0.5, cx + halfW, farY + farCap);
+  ctx.quadraticCurveTo(cx + halfW * 1.15, sourceY - length * 0.14, cx + halfW * 0.85, sourceY - nearCap);
+  ctx.quadraticCurveTo(cx + halfW * 0.6, sourceY + nearCap, cx, sourceY + nearCap);
+  ctx.closePath();
+}
+
+/**
+ * Луч из верхушки ёлки в небо: ниже порога — ноль вызовов ctx. Над порогом —
+ * три вложенных скруглённых конуса с градиентами в прозрачный край и два
+ * мягких диска свечения у источника. Начало луча совпадает с верхушкой ёлки
+ * из src/world.js, включая `rise` при её частичном проявлении. Время даёт
+ * только детерминированное дыхание: ±3% ширины и ±5% альфы, период ≈ 6.9 с.
+ *
+ * @param {CanvasRenderingContext2D} ctx 2D-контекст (в тесте — мок)
+ * @param {number} width ширина кадра
+ * @param {number} height высота кадра
+ * @param {number} count общий счётчик визитов
+ * @param {number} [t] время кадра в мс
+ * @param {number} [rise] сдвиг верхушки ёлки вниз при проявлении (0..0.015h)
+ * @returns {void}
+ */
+export function drawBeam(ctx, width, height, count, t = 0, rise = 0) {
+  if (!isUnlocked('beam', count)) return;
+  const w = Number.isFinite(width) && width > 0 ? width : 0;
+  const h = Number.isFinite(height) && height > 0 ? height : 0;
+  if (w <= 0 || h <= 0) return;
+
+  const time = Number.isFinite(t) ? t : 0;
+  const shift = Number.isFinite(rise) ? rise : 0;
+  const cx = w / 2;
+  const base = h * TREE_BASE_RATIO;
+  const treeH = Math.min(h * TREE_HEIGHT_RATIO, w * TREE_WIDTH_RATIO);
+  const sourceY = base - treeH + shift;
+  // Далёкий конец чуть за верхним краем кадра — луч уходит в небо.
+  const farY = -h * 0.02;
+  const length = sourceY - farY;
+
+  const pulse = Math.sin(time / BEAM_BREATHE_SCALE);
+  const halfW = treeH * BEAM_HALF_RATIO * (1 + pulse * 0.03);
+  ctx.globalAlpha = 0.95 + pulse * 0.05;
+
+  // Три вложенных конуса: широкий и два более узких, каждый растворяется
+  // в прозрачность на далёнем конце. Блик верх-слева — у самого источника.
+  const layers = [
+    { width: 1, end: 0, inner: WORLD_GROWTH_COLORS.beamGlow },
+    { width: 0.6, end: 0.06, inner: WORLD_GROWTH_COLORS.beamMid },
+    { width: 0.28, end: 0.12, inner: WORLD_GROWTH_COLORS.beamCore },
+  ];
+  for (const layer of layers) {
+    const layerHalf = halfW * layer.width;
+    const layerFarY = farY + length * layer.end;
+    beamPath(ctx, cx, sourceY, layerFarY, layerHalf);
+    const cone = ctx.createLinearGradient(cx, sourceY, cx, layerFarY);
+    cone.addColorStop(0, layer.inner);
+    cone.addColorStop(0.45, WORLD_GROWTH_COLORS.beamMid);
+    cone.addColorStop(1, WORLD_GROWTH_COLORS.beamFar);
+    ctx.fillStyle = cone;
+    ctx.fill();
+  }
+
+  // Мягкое свечение у источника: внутренний круг градиента смещён влево-вверх
+  // от внешнего — общий для сцены источник света (docs/style.md, п.3).
+  const glowR = halfW * 1.6;
+  const glowX = cx - halfW * 0.18;
+  const glowY = sourceY - halfW * 0.24;
+  const glow = ctx.createRadialGradient(glowX, glowY, glowR * 0.06, cx, sourceY, glowR);
+  glow.addColorStop(0, WORLD_GROWTH_COLORS.beamCore);
+  glow.addColorStop(0.4, WORLD_GROWTH_COLORS.beamGlow);
+  glow.addColorStop(1, WORLD_GROWTH_COLORS.beamFar);
+  ctx.beginPath();
+  ctx.arc(glowX, glowY, glowR, 0, Math.PI * 2);
+  ctx.fillStyle = glow;
+  ctx.fill();
+
+  // Маленькое ядро поверх свечения — тот же upper-left блик и прозрачный край.
+  const coreR = halfW * 0.72;
+  const coreX = cx - coreR * 0.25;
+  const coreY = sourceY - coreR * 0.3;
+  const core = ctx.createRadialGradient(coreX, coreY, coreR * 0.05, cx, sourceY, coreR);
+  core.addColorStop(0, WORLD_GROWTH_COLORS.beamCore);
+  core.addColorStop(0.5, WORLD_GROWTH_COLORS.beamGlow);
+  core.addColorStop(1, WORLD_GROWTH_COLORS.beamFar);
+  ctx.beginPath();
+  ctx.arc(coreX, coreY, coreR, 0, Math.PI * 2);
+  ctx.fillStyle = core;
+  ctx.fill();
+
+  ctx.globalAlpha = 1;
+}
+
+/**
+ * Регистрирует ровно три объекта на переданном контракте: города слоя 6,
+ * машущие фигуры слоя 9 и луч слоя 15. Все берут один и тот же счётчик из
+ * setCount (POST и GET-опрос идут в один хэндл) и гаснут в тёмной фазе вместе
+ * с ёлкой; луч дополнительно учитывает её частичное проявление.
  *
  * @param {{ register: Function }} contract контракт рендера (src/contract.js)
  * @param {(t: number) => { layers: { tree: number } }} [progressAt]
- *   прогресс ритуала; при tree <= 0 не рисуется ни города, ни фигуры.
+ *   прогресс ритуала; при tree <= 0 не рисуется ни города, ни фигуры, ни луч.
  *   Без аргумента слои рисуются всегда — для изолированных тестов.
  * @returns {{setCount: (n: number) => void, readonly count: number,
  *   isUnlocked: (layer: string) => boolean}} хэндл общего счётчика
@@ -453,20 +583,29 @@ export function drawFigures(ctx, width, height, count, t = 0) {
 export function registerWorldGrowth(contract, progressAt = null) {
   let count = 0;
 
-  /** Общая обёртка обоих слоёв: тёмная фаза гасит их вместе с ёлкой. */
-  const visibleDraw = (draw) => (ctx, width, height, t) => {
+  /** Общая обёртка трёх слоёв: тёмная фаза гасит их вместе с ёлкой. */
+  const visibleDraw = (draw, withRise = false) => (ctx, width, height, t) => {
+    let tree = 1;
     if (typeof progressAt === 'function') {
-      const tree = progressAt(t)?.layers?.tree;
-      if (!(tree > 0)) return;
+      const value = progressAt(t)?.layers?.tree;
+      if (!(value > 0)) return;
+      tree = value;
+    }
+    if (withRise) {
+      const alpha = Math.min(1, tree);
+      const rise = (1 - alpha) * height * TREE_RISE_RATIO;
+      draw(ctx, width, height, count, t, rise);
+      return;
     }
     draw(ctx, width, height, count, t);
   };
 
   contract.register(visibleDraw(drawCities), { layer: WORLD_GROWTH_LAYERS.cities });
   contract.register(visibleDraw(drawFigures), { layer: WORLD_GROWTH_LAYERS.figures });
+  contract.register(visibleDraw(drawBeam, true), { layer: WORLD_GROWTH_LAYERS.beam });
 
   return Object.freeze({
-    /** Принять общий счётчик в оба объекта сцены. */
+    /** Принять общий счётчик во все три объекта сцены. */
     setCount(n) {
       count = normalizeCount(n);
     },
