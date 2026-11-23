@@ -70,7 +70,7 @@ function smoothstep(p) {
  * @returns {object} новое состояние (или то же самое, если старт невозможен)
  */
 export function startRitual(state, t) {
-  if (state.phase !== PHASE_DARK) return state;
+  if (state.phase !== PHASE_DARK || !Number.isFinite(t)) return state;
   return { phase: PHASE_FALLING, startedAt: t };
 }
 

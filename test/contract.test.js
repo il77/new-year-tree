@@ -72,7 +72,7 @@ test('contract: кадр с объектом — после фона и искр
   });
   renderFrame(ctx, 100, 100, 0, contract);
 
-  // Фон — первым: fillStyle '#000' и fillRect на весь кадр.
+  // После сброса альфы фон — первым: fillStyle '#000' и fillRect на весь кадр.
   assert.equal(callsNamed(ctx, 'fillStyle')[0].args[0], BACKGROUND, 'фон залит чёрным');
   assert.deepEqual(callsNamed(ctx, 'fillRect')[0].args, [0, 0, 100, 100], 'фон покрывает кадр');
 

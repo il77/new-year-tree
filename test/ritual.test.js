@@ -525,6 +525,10 @@ test('ritual: чистые функции — детерминированы п�
   // Старт — только из dark.
   const dark = { phase: PHASE_DARK, startedAt: null };
   assert.deepEqual(startRitual(dark, 42), { phase: PHASE_FALLING, startedAt: 42 });
+  assert.equal(startRitual(dark, Number.NaN), dark, 'нечисловой старт — no-op');
+  const tracked = createRitual();
+  assert.equal(tracked.touch(Number.NaN), false, 'нечисловое касание не запускает ритуал');
+  assert.equal(tracked.phase, PHASE_DARK, 'фаза не сдвинулась');
   assert.equal(startRitual(falling, 42), falling, 'из falling старт невозможен');
   const revealed = { phase: PHASE_REVEALED, startedAt: 0 };
   assert.equal(startRitual(revealed, 42), revealed, 'из revealed старт невозможен');

@@ -60,6 +60,7 @@ function createHarness({
   height = 800,
   raf = true,
   docEvents = true,
+  winEvents = true,
   hiddenProp = true,
 } = {}) {
   const ctx = createMockCtx();
@@ -87,10 +88,13 @@ function createHarness({
   const win = {
     innerWidth: width,
     innerHeight: height,
-    addEventListener: (type, fn) => {
-      winListeners[type] = fn;
-    },
   };
+  // winEvents: false — стаб без Window.addEventListener (guard-ветка).
+  if (winEvents) {
+    win.addEventListener = (type, fn) => {
+      winListeners[type] = fn;
+    };
+  }
   if (storage) win.localStorage = storage;
   if (raf) {
     win.requestAnimationFrame = (fn) => {
@@ -362,6 +366,35 @@ test('live: первый вход — цикл доигрывает ритуал
   assert.equal(storage.writes.length, 1, 'касание не тронуло флаг');
 });
 
+test('live: исключение в кадре не роняет цикл — следующий кадр запланирован один раз', () => {
+  const storage = createSharedStorage(FIRST_VISIT_VALUE);
+  const h = createHarness({ storage });
+  const contract = createSceneContract();
+  bootstrap(h.doc, h.win, contract);
+
+  let draws = 0;
+  contract.register(() => {
+    draws += 1;
+    if (draws === 1) throw new Error('плохой объект контракта');
+  }, { layer: 99 });
+
+  assert.equal(h.rafQueue.length, 1, 'цикл запущен');
+  // t=4000 — камера не нейтральна, поэтому кадр держит открытый save().
+  h.setClock(4000);
+  const saves = () => callsNamed(h.ctx, 'save').length;
+  const restores = () => callsNamed(h.ctx, 'restore').length;
+  assert.doesNotThrow(() => h.flushFrame(), 'ошибка кадра не уходит наружу');
+  assert.equal(draws, 1, 'первый кадр попробовал нарисоваться');
+  assert.equal(saves(), restores(), 'после ошибки save() закрыт restore()');
+  assert.equal(h.rafQueue.length, 1, 'после ошибки ровно один следующий кадр');
+  h.setClock(4040);
+  assert.doesNotThrow(() => h.flushFrame(), 'следующий кадр выполняется');
+  assert.equal(draws, 2, 'цикл продолжился');
+  assert.equal(saves(), restores(), 'следующий кадр не накопил трансформацию');
+  assert.equal(h.rafQueue.length, 1, 'второй цикла не появилось');
+  assert.equal(storage.writes.length, 0, 'стоящий флаг не перезаписан');
+});
+
 // --- Вкладка: пауза и возобновление ------------------------------------------
 
 test('live: скрытая вкладка останавливает цикл, видимая возобновляет; стабы без событий не падают', () => {
@@ -427,13 +460,18 @@ test('live: деградации — без rAF и без canvas 2D живой �
   );
 
   // Первый вход без rAF: прежняя мгновенная деградация (строки 1.3/1.4).
-  const noRafDark = createHarness({ raf: false });
+  const darkStorage = createSharedStorage(null);
+  const noRafDark = createHarness({ raf: false, storage: darkStorage });
   const contractB = createSceneContract();
   const { ritual: ritualB } = bootstrap(noRafDark.doc, noRafDark.win, contractB);
   attachWorld(contractB, ritualB);
   assert.doesNotThrow(() => noRafDark.sceneListeners.pointerdown(), 'касание не падает');
   assert.equal(ritualB.phase, PHASE_REVEALED, 'мир проявился мгновенно, флаг — тем же путём');
-  assert.deepEqual(noRafDark.storageWrites ?? [], []);
+  assert.deepEqual(
+    darkStorage.writes,
+    [[FIRST_VISIT_KEY, FIRST_VISIT_VALUE]],
+    'флаг записан без rAF',
+  );
 
   // rAF есть, а 2D нет: цикл не планируется — анимировать нечего.
   const no2d = createHarness({
@@ -443,6 +481,49 @@ test('live: деградации — без rAF и без canvas 2D живой �
   bootstrap(no2d.doc, no2d.win, createSceneContract());
   assert.equal(no2d.rafQueue.length, 0, 'без 2D цикл не стартует');
   assert.equal(no2d.elements.fallback.hidden, false, 'заглушка как раньше');
+
+  // Guard: Window без addEventListener — bootstrap не падает (finding 10).
+  const noWinEvents = createHarness({
+    storage: createSharedStorage(FIRST_VISIT_VALUE),
+    winEvents: false,
+  });
+  assert.doesNotThrow(
+    () => bootstrap(noWinEvents.doc, noWinEvents.win, createSceneContract()),
+    'окно без addEventListener — не падаем',
+  );
+
+  // Guard: документ без caption/fallback — деградация не падает (finding 11).
+  const noCaption = createHarness({
+    storage: createSharedStorage(FIRST_VISIT_VALUE),
+    hasCanvas2D: false,
+  });
+  const sceneOnly = noCaption.elements.scene;
+  noCaption.doc.getElementById = (id) => (id === 'scene' ? sceneOnly : null);
+  assert.doesNotThrow(
+    () => bootstrap(noCaption.doc, noCaption.win, createSceneContract()),
+    'нет caption/fallback — заглушка всё равно показывается',
+  );
+});
+
+test('live: альфа сбрасывается в начале каждого кадра, даже после плохого объекта', () => {
+  const ctx = createMockCtx();
+  const contract = createSceneContract();
+  contract.register((c) => {
+    c.globalAlpha = 0.25;
+  }, { layer: 99 });
+  const ritual = createRitual({ firstVisit: true });
+
+  for (let frame = 0; frame < 2; frame += 1) {
+    const mark = ctx.calls.length;
+    renderFrame(ctx, 1280, 800, 4000, contract, ritual);
+    const calls = ctx.calls.slice(mark);
+    assert.equal(calls[0].name, 'globalAlpha', 'сброс альфы — первый вызов кадра');
+    assert.equal(calls[0].args[0], 1, 'альфа сброшена до фона');
+    assert.ok(
+      calls.findIndex((call) => call.name === 'fillRect') > 0,
+      'фон закрашен после сброса',
+    );
+  }
 });
 
 // --- Мерцание мира: детерминизм по t -----------------------------------------

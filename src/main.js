@@ -105,13 +105,22 @@ export function bootstrap(doc, win, contract = sceneContract) {
         looping = false;
         return;
       }
-      const t = now();
-      ritual.update(t);
-      render(t);
-      // Флаг ставит именно цикл (story 1.3), один раз (guard) и только если
-      // ритуал доигран здесь — при повторном входе записи не нужны.
-      if (!revealedAtStart && ritual.phase === PHASE_REVEALED) finishRitual();
-      win.requestAnimationFrame(frame);
+      try {
+        const t = now();
+        ritual.update(t);
+        render(t);
+        // Флаг ставит именно цикл (story 1.3), один раз (guard) и только если
+        // ритуал доигран здесь — при повторном входе записи не нужны.
+        if (!revealedAtStart && ritual.phase === PHASE_REVEALED) finishRitual();
+      } catch {
+        // Плохой объект контракта не должен ронять цикл: кадр пропущен,
+        // следующий всё равно запланирован ниже. Ошибка не уходит наружу.
+      } finally {
+        // Один следующий кадр — и при успехе, и после броска. `looping`
+        // остаётся true, поэтому повторный scheduleFrames() — no-op.
+        if (pageIsHidden()) looping = false;
+        else win.requestAnimationFrame(frame);
+      }
     };
     win.requestAnimationFrame(frame);
     return true;
@@ -149,8 +158,8 @@ export function bootstrap(doc, win, contract = sceneContract) {
       // Старый браузер без 2D Canvas: текстовая заглушка вместо пустоты,
       // деградация без падения.
       canvas.hidden = true;
-      caption.hidden = true;
-      fallback.hidden = false;
+      if (caption) caption.hidden = true;
+      if (fallback) fallback.hidden = false;
       return;
     }
 
@@ -188,7 +197,9 @@ export function bootstrap(doc, win, contract = sceneContract) {
 
   // Обёртка обязательна: браузер передаёт в слушатель Event — без неё
   // (и без coerce в render) искра получала бы NaN и пропадала после ресайза.
-  win.addEventListener('resize', () => render());
+  if (typeof win.addEventListener === 'function') {
+    win.addEventListener('resize', () => render());
+  }
 
   // Живая сцена при повторном входе: мир готов с первого кадра — цикл
   // стартует сразу. В фазе dark анимировать нечего (слои не видны, искра

@@ -37,7 +37,8 @@ export function sparkAt(width, height) {
  * При t > 0 вся сцена (искра + контракт) слегка покачивается камерой —
  * sinusoidal, амплитуды ограничены константами CAMERA (src/animation.js).
  * Статичный кадр (t = 0, нечисловое t) — камера нейтральна, вызовов
- * трансформации нет вовсе (старое поведение кадра сохранено байт-в-байт).
+ * трансформации нет вовсе (как и в старом кадре; альфа дополнительно
+ * сбрасывается в начале каждого кадра).
  *
  * @param {CanvasRenderingContext2D} ctx 2D-контекст (в тесте — мок)
  * @param {number} width текущая ширина кадра (canvas)
@@ -53,6 +54,10 @@ export function sparkAt(width, height) {
  * @returns {void}
  */
 export function renderFrame(ctx, width, height, t = 0, contract = null, ritual = null) {
+  // Объект контракта мог оставить альфу в прошлом кадре — сбрасываем её до
+  // фона и вне save/restore, иначе полупрозрачный фон даёт ghosting.
+  ctx.globalAlpha = 1;
+
   // Фон — вне трансформации: покачивание не оставляет чёрных щелей
   // по краям (и само движение контента — «сцена», а не «пустота»).
   ctx.fillStyle = BACKGROUND;
@@ -77,21 +82,25 @@ export function renderFrame(ctx, width, height, t = 0, contract = null, ritual =
     ctx.translate(-width / 2, -height / 2);
   }
 
-  // Горизонталь искры — одна и та же в статичном кадре и в ритуале
-  // (sparkAt), по вертикали ритуал берёт позицию из своего прогресса.
-  const sparkPoint = sparkAt(width, height);
-  if (ritual) {
-    // Ритуал: позиция/непрозрачность искры — чистый прогресс по t.
-    const { spark } = ritual.progress(t);
-    drawSpark(ctx, sparkPoint.x, spark.yRatio * height, t, spark.alpha);
-  } else {
-    drawSpark(ctx, sparkPoint.x, sparkPoint.y, t);
+  try {
+    // Горизонталь искры — одна и та же в статичном кадре и в ритуале
+    // (sparkAt), по вертикали ритуал берёт позицию из своего прогресса.
+    const sparkPoint = sparkAt(width, height);
+    if (ritual) {
+      // Ритуал: позиция/непрозрачность искры — чистый прогресс по t.
+      const { spark } = ritual.progress(t);
+      drawSpark(ctx, sparkPoint.x, spark.yRatio * height, t, spark.alpha);
+    } else {
+      drawSpark(ctx, sparkPoint.x, sparkPoint.y, t);
+    }
+    if (contract) {
+      // Объекты контракта — строго после фона и искры, порядок — по слоям
+      // (см. docs/contract.md).
+      contract.draw(ctx, width, height, t);
+    }
+  } finally {
+    // Плохой объект контракта не должен оставлять незакрытый save(): иначе
+    // следующий кадр рисуется внутри накопленной трансформации камеры.
+    if (moving) ctx.restore();
   }
-  if (contract) {
-    // Объекты контракта — строго после фона и искры, порядок — по слоям
-    // (см. docs/contract.md).
-    contract.draw(ctx, width, height, t);
-  }
-
-  if (moving) ctx.restore();
 }
