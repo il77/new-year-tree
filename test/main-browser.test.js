@@ -96,11 +96,11 @@ test('main: page-ветка — bootstrap, мир и гирлянда, render, f
     // bootstrap вызван без контракта: registerWorld добавляет три объекта
     // (снег 5 / лес 8 / ёлка 10), registerGarland — четвёртый (слой 20),
     // registerCalendar — пятый (слой 21, звезда epic-calendar),
-    // registerWorldGrowth — шестой (слой 6, города epic-world).
+    // registerWorldGrowth — шестой и седьмой (слои 6 и 9: города и фигуры epic-world).
     assert.equal(
       sceneContract.size,
-      sizeBefore + 6,
-      'мир, гирлянда, звезда и города добавили ровно шесть объектов к общему контракту',
+      sizeBefore + 7,
+      'мир, гирлянда, звезда, города и фигуры добавили ровно семь объектов к общему контракту',
     );
     assert.ok(backgroundRectsIn(ctx.calls).length > 0, 'render() вызван — кадр нарисован');
     const stops = callsNamed(ctx, 'addColorStop').map((call) => call.args[1]);
