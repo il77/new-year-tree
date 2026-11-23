@@ -13,6 +13,7 @@ import { sceneContract } from '../src/contract.js';
 import { GARLAND_DAY_COLORS, dayIndexFor } from '../src/garland-layout.js';
 import { FIRST_VISIT_KEY, FIRST_VISIT_VALUE, PHASE_REVEALED } from '../src/ritual.js';
 import { WORLD_COLORS } from '../src/world.js';
+import { WORLD_GROWTH_COLORS } from '../src/world-growth.js';
 
 let importSeq = 0;
 /** Свежий экземпляр main.js: query уникален, поэтому ESM-кэш не переиспользуется. */
@@ -94,11 +95,12 @@ test('main: page-ветка — bootstrap, мир и гирлянда, render, f
     assert.equal(rafQueue.length, 1, 'живой цикл запланирован');
     // bootstrap вызван без контракта: registerWorld добавляет три объекта
     // (снег 5 / лес 8 / ёлка 10), registerGarland — четвёртый (слой 20),
-    // registerCalendar — пятый (слой 21, звезда epic-calendar).
+    // registerCalendar — пятый (слой 21, звезда epic-calendar),
+    // registerWorldGrowth — шестой (слой 6, города epic-world).
     assert.equal(
       sceneContract.size,
-      sizeBefore + 5,
-      'мир, гирлянда и звезда добавили ровно пять объектов к общему контракту',
+      sizeBefore + 6,
+      'мир, гирлянда, звезда и города добавили ровно шесть объектов к общему контракту',
     );
     assert.ok(backgroundRectsIn(ctx.calls).length > 0, 'render() вызван — кадр нарисован');
     const stops = callsNamed(ctx, 'addColorStop').map((call) => call.args[1]);
@@ -114,6 +116,16 @@ test('main: page-ветка — bootstrap, мир и гирлянда, render, f
     assert.deepEqual(fetchCalls.map((c) => c.method), ['POST'], 'один вход — POST /api/visit');
     assert.equal(fetchCalls[0].url, '/api/visit', 'адрес запроса не изменился');
     assert.equal(counter.textContent, '12', 'ответ визита дошёл до счётчика');
+
+    // Общий счётчик из ответа (12 ≥ 10) дошёл до слоя городов: следующий кадр
+    // страницы уже содержит тёплый стоп окна — города нарисованы без нового цикла.
+    mod.page.render();
+    const growthStops = callsNamed(ctx, 'addColorStop').map((call) => call.args[1]);
+    assert.ok(
+      growthStops.includes(WORLD_GROWTH_COLORS.windowWarm),
+      'города появились после ответа с общим счётчиком',
+    );
+
     assert.equal(timers.length, 1, 'один таймер опроса');
     assert.equal(timers[0].ms, 3000, 'интервал 3 с');
 

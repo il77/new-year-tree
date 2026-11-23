@@ -14,6 +14,7 @@ import { registerWorld } from './world.js';
 import { fetchVisit, syncCounter, updateCounter } from './garland-client.js';
 import { registerGarland } from './garland.js';
 import { registerCalendar } from './calendar-star.js';
+import { registerWorldGrowth } from './world-growth.js';
 import { updateCalendarCounter } from './calendar-counter.js';
 import {
   createRitual,
@@ -253,6 +254,10 @@ if (page) {
   // гирляндой. Дата читается на каждом кадре, новый цикл/таймер не нужны;
   // в тёмной фазе ритуал гасит звезду вместе с ёлкой.
   registerCalendar(page.contract, () => new Date(), progressAt);
+  // Города (epic-world): первый слой мира на общем контракте, слой 6 под
+  // лесом и ёлкой. Общий агрегат из ответа сервера придёт в тот же объект
+  // через setCount — второй регистрации и нового цикла нет.
+  const worldGrowth = registerWorldGrowth(page.contract, progressAt);
   page.render();
 
   // Визит уходит на тот же процесс, что отдал страницу. До ответа — «—»;
@@ -265,6 +270,7 @@ if (page) {
     // единственная лишняя точка обновления: без нового цикла и таймера.
     updateCalendarCounter(document);
     garland.setState(visit);
+    worldGrowth.setCount(visit.count);
   };
   updateCounter(document, null);
   fetchVisit().then(applyVisit);
