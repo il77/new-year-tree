@@ -3,7 +3,7 @@ title: 'Раскладка по seed и цвет дня недели'
 type: feature
 ticket: '3'
 created: '2026-11-23'
-status: built
+status: done
 baseline_revision: 'a6af1057018e54f299bd2ec2889c92295089a55f'
 route: full
 route_source: auto
@@ -100,3 +100,5 @@ context: ["docs/contract.md", "docs/style.md", "docs/design-final.html"]
 
 **Manual checks (if no CLI):**
 - Локально `npm run dev`: обновление страницы меняет рисунок по новому seed; два браузера после обновления видят одинаковую раскладку; цвет соответствует выбранному дню недели.
+
+**Результат проверки человека (2026-11-23):** локально проверил, работает. Провёл человек, запись со слов человека.
