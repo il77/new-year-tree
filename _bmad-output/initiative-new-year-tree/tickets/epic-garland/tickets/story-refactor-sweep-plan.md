@@ -3,7 +3,7 @@ title: 'Уборка по итогам ревью'
 type: refactor
 ticket: '5'
 created: '2026-11-23'
-status: built
+status: done
 baseline_revision: '87fb2437b90ef1bee7d2c1afbde63247fb3432e5'
 route: full
 route_source: auto
@@ -92,3 +92,5 @@ context: ["docs/contract.md", "docs/style.md", "README.md"]
 
 **Manual checks (if no CLI):**
 - Локально `npm run dev`: ритуал, живая сцена и гирлянда выглядят как до уборки, без чёрных полос по краям.
+
+**Результат проверки человека (2026-11-23):** закрыть и запушить. Провёл человек, запись со слов человека.
