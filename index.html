@@ -26,6 +26,23 @@
       touch-action: none;
     }
 
+    /* Счётчик дней до Нового года (epic-calendar): тихий текст вверху кадра.
+       pointer-events: none — весь тап остаётся жестом ритуала. */
+    #calendar-counter {
+      position: fixed;
+      top: 1.2rem;
+      left: 0;
+      right: 0;
+      margin: 0;
+      text-align: center;
+      color: rgba(255, 244, 214, 0.78);
+      font-family: Georgia, "Times New Roman", serif;
+      font-size: clamp(0.9rem, 2vw, 1.2rem);
+      letter-spacing: 0.18em;
+      pointer-events: none;
+      user-select: none;
+    }
+
     /* Подпись — DOM-элемент над canvas, не рисуется на canvas */
     #caption {
       position: fixed;
@@ -89,6 +106,7 @@
   </style>
 </head>
 <body>
+  <p id="calendar-counter">—</p>
   <canvas id="scene" aria-label="Тёмная сцена с искрой"></canvas>
   <p id="caption">зажги</p>
   <!-- Тихий повторный вход (story 1.4): модуль main.js отложенный — первый

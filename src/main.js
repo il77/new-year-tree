@@ -13,6 +13,7 @@ import { sceneContract } from './contract.js';
 import { registerWorld } from './world.js';
 import { fetchVisit, syncCounter, updateCounter } from './garland-client.js';
 import { registerGarland } from './garland.js';
+import { updateCalendarCounter } from './calendar-counter.js';
 import {
   createRitual,
   readFirstVisit,
@@ -29,11 +30,16 @@ import {
  * @param {{ draw: Function }} [contract] контракт рендера (src/contract.js);
  *   по умолчанию — общий sceneContract страницы, в тестах — изолированный
  *   экземпляр createSceneContract()
+ * @param {Date} [today] дата для отсчёта дней; в тестах передаётся явно
  * @returns {{ render: (t?: number) => void, contract: object, ritual: object }}
  *   кадр для повторной отрисовки, контракт (для эпиков 2–4) и контроллер
  *   ритуала (тесты гоняют его по времени явными t)
  */
-export function bootstrap(doc, win, contract = sceneContract) {
+export function bootstrap(doc, win, contract = sceneContract, today = new Date()) {
+  // Отсчёт дней — до первого кадра: текст уже в первом paint, без нового
+  // rAF-цикла и без интервала (обновляется ещё и при синхронизации визита).
+  updateCalendarCounter(doc, today);
+
   const canvas = doc.getElementById('scene');
   const caption = doc.getElementById('caption');
   const fallback = doc.getElementById('fallback');
@@ -250,6 +256,9 @@ if (page) {
   const applyVisit = (visit) => {
     if (!visit) return;
     updateCounter(document, visit.count);
+    // Отсчёт от даты не зависит от визита, но синхронизация — удобная и
+    // единственная лишняя точка обновления: без нового цикла и таймера.
+    updateCalendarCounter(document);
     garland.setState(visit);
   };
   updateCounter(document, null);
