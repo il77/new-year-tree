@@ -93,11 +93,12 @@ test('main: page-ветка — bootstrap, мир и гирлянда, render, f
     assert.equal(mod.page.ritual.phase, PHASE_REVEALED, 'флаг «1» — готовый мир');
     assert.equal(rafQueue.length, 1, 'живой цикл запланирован');
     // bootstrap вызван без контракта: registerWorld добавляет три объекта
-    // (снег 5 / лес 8 / ёлка 10), registerGarland — четвёртый, слой 20.
+    // (снег 5 / лес 8 / ёлка 10), registerGarland — четвёртый (слой 20),
+    // registerCalendar — пятый (слой 21, звезда epic-calendar).
     assert.equal(
       sceneContract.size,
-      sizeBefore + 4,
-      'мир и гирлянда добавили ровно четыре объекта к общему контракту',
+      sizeBefore + 5,
+      'мир, гирлянда и звезда добавили ровно пять объектов к общему контракту',
     );
     assert.ok(backgroundRectsIn(ctx.calls).length > 0, 'render() вызван — кадр нарисован');
     const stops = callsNamed(ctx, 'addColorStop').map((call) => call.args[1]);

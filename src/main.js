@@ -13,6 +13,7 @@ import { sceneContract } from './contract.js';
 import { registerWorld } from './world.js';
 import { fetchVisit, syncCounter, updateCounter } from './garland-client.js';
 import { registerGarland } from './garland.js';
+import { registerCalendar } from './calendar-star.js';
 import { updateCalendarCounter } from './calendar-counter.js';
 import {
   createRitual,
@@ -248,6 +249,10 @@ if (page) {
   // видят одну раскладку. Повторная регистрация дала бы вторую гирлянду.
   // Прогресс тот же, что у мира: в тёмной фазе ёлки нет — огоньков нет.
   const garland = registerGarland(page.contract, 0, progressAt);
+  // Календарная звезда: ещё один объект того же контракта, слой 21 над
+  // гирляндой. Дата читается на каждом кадре, новый цикл/таймер не нужны;
+  // в тёмной фазе ритуал гасит звезду вместе с ёлкой.
+  registerCalendar(page.contract, () => new Date(), progressAt);
   page.render();
 
   // Визит уходит на тот же процесс, что отдал страницу. До ответа — «—»;
