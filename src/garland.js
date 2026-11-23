@@ -32,6 +32,8 @@ export const GARLAND_GLOW_STOPS = [
   [0.6, 'rgba(255,180,90,0.07)'],
   [1, 'rgba(255,180,90,0)'],
 ];
+/** Внутренний радиус градиента сияния — общий маркер для тестов. */
+export const GARLAND_GLOW_INNER_RADIUS = 8;
 
 /** Безопасный локальный набор при недоступном сервере: одинокий огонёк 2.1. */
 const LOCAL_STATE = Object.freeze({ count: 1, tens: 0, remainder: 1 });
@@ -162,7 +164,14 @@ function drawLight(ctx, x, y, r, palette) {
 function drawGlow(ctx, geo) {
   const cy = geo.topY + geo.treeH * 0.52;
   const radius = geo.treeH * 0.92;
-  const glow = ctx.createRadialGradient(geo.cx, cy, 8, geo.cx, cy, radius);
+  const glow = ctx.createRadialGradient(
+    geo.cx,
+    cy,
+    GARLAND_GLOW_INNER_RADIUS,
+    geo.cx,
+    cy,
+    radius,
+  );
   for (const [stop, color] of GARLAND_GLOW_STOPS) glow.addColorStop(stop, color);
   ctx.beginPath();
   ctx.arc(geo.cx, cy, radius, 0, Math.PI * 2);
@@ -179,12 +188,14 @@ function drawGlow(ctx, geo) {
  * @param {number} height высота кадра
  * @param {{count: number, tens: number, remainder: number, seed: number}} state агрегат
  * @param {number} [treeAlpha] прогресс проявления ёлки; без аргумента = 1
+ * @param {boolean} [peakGlow] календарный пик 31 декабря; сияние рисуется
+ *   здесь же, одним слоем, даже если счётчик уже перевалил за 300
  * @returns {void}
  */
-function drawGarland(ctx, width, height, state, treeAlpha = 1) {
+function drawGarland(ctx, width, height, state, treeAlpha = 1, peakGlow = false) {
   const rise = (1 - treeAlpha) * height * 0.015;
   const geo = treeGeometry(width, height, rise);
-  if (state.count >= GARLAND_GLOW_COUNT) drawGlow(ctx, geo);
+  if (state.count >= GARLAND_GLOW_COUNT || peakGlow) drawGlow(ctx, geo);
   let slot = 0;
   for (let i = 0; i < state.tens; i += 1, slot += 1) {
     const { x, y } = lightPoint(geo, state.seed, slot);
@@ -209,11 +220,15 @@ function drawGarland(ctx, width, height, state, treeAlpha = 1) {
  *   Без аргумента рисуется всегда — для изолированных тестов.
  * @param {{count?: number, seed?: number, tens?: number, remainder?: number} | null} [initialState]
  *   начальный агрегат; без него — безопасный локальный набор story 2.1
- * @returns {{setState: (visit: object) => void, readonly state: object}}
+ * @returns {{setState: (visit: object) => void, setPeakGlow: (on: boolean) => void,
+ *   readonly state: object, readonly peakGlow: boolean}}
  *   хэндл уже зарегистрированной гирлянды (второй регистрации нет)
  */
 export function registerGarland(contract, seed = 0, progressAt = null, initialState = null) {
   let state = normalizeGarlandState(initialState ?? LOCAL_STATE, seed);
+  // Календарный пик живёт здесь же: один glow на кадр, под огоньками,
+  // с тем же rise во время проявления. Calendar лишь переключает флаг.
+  let peakGlow = false;
   contract.register(
     (ctx, width, height, t) => {
       let treeAlpha = 1;
@@ -222,7 +237,7 @@ export function registerGarland(contract, seed = 0, progressAt = null, initialSt
         if (tree <= 0) return;
         treeAlpha = tree;
       }
-      drawGarland(ctx, width, height, state, treeAlpha);
+      drawGarland(ctx, width, height, state, treeAlpha, peakGlow);
     },
     { layer: GARLAND_LAYER },
   );
@@ -231,9 +246,16 @@ export function registerGarland(contract, seed = 0, progressAt = null, initialSt
     setState(next) {
       state = normalizeGarlandState(next, state.seed);
     },
+    /** 31 декабря: включить сияние ёлки, не трогая агрегат визитов. */
+    setPeakGlow(on) {
+      peakGlow = Boolean(on);
+    },
     /** Снимок текущего состояния (для тестов и отладки). */
     get state() {
       return { ...state };
+    },
+    get peakGlow() {
+      return peakGlow;
     },
   };
 }

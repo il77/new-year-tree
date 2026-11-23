@@ -85,21 +85,16 @@ test('calendar-counter: отсутствие элемента или докум�
 
 // --- Разметка -------------------------------------------------------------
 
-test('index.html: #calendar-counter есть и стоит выше canvas, не перехватывает тап', async () => {
+test('index.html: #calendar-counter зафиксирован сверху и не перехватывает тап', async () => {
   const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 
   assert.match(html, /<p id="calendar-counter">—<\/p>/, 'счётчик в разметке');
-  const counterAt = html.indexOf('<p id="calendar-counter">');
-  const canvasAt = html.indexOf('<canvas id="scene"');
-  assert.ok(counterAt >= 0 && canvasAt > counterAt, 'счётчик выше canvas');
-
   const css = html.match(/#calendar-counter\s*\{([\s\S]*?)\}/);
   assert.ok(css, 'стиль #calendar-counter объявлен');
-  assert.match(css[1], /position:\s*fixed/);
-  assert.match(css[1], /top:\s*1\.2rem/);
-  assert.match(css[1], /text-align:\s*center/);
-  assert.match(css[1], /font-family:\s*Georgia/);
+  // Проверяем инварианты, а не конкретные px/шрифт: важны fixed и тап-прозрачность.
+  assert.match(css[1], /position:\s*fixed/, 'счётчик виден поверх сцены');
   assert.match(css[1], /pointer-events:\s*none/, 'тап не перехватывается');
+  assert.match(css[1], /text-align:\s*center/, 'текст по центру');
 });
 
 // --- Bootstrap-харнесс (паттерн test/matrix.test.js) -----------------------

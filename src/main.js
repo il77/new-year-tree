@@ -252,8 +252,16 @@ if (page) {
   const garland = registerGarland(page.contract, 0, progressAt);
   // Календарная звезда: ещё один объект того же контракта, слой 21 над
   // гирляндой. Дата читается на каждом кадре, новый цикл/таймер не нужны;
-  // в тёмной фазе ритуал гасит звезду вместе с ёлкой.
-  registerCalendar(page.contract, () => new Date(), progressAt);
+  // в тёмной фазе ритуал гасит звезду вместе с ёлкой. Хэндл гирлянды нужен,
+  // чтобы 31 декабря сияние ёлки включилось один раз в её же слое, а не
+  // дублировалось поверх огоньков. При смене суток обновляем и DOM-счётчик.
+  registerCalendar(
+    page.contract,
+    () => new Date(),
+    progressAt,
+    garland,
+    () => updateCalendarCounter(document),
+  );
   // Города (epic-world): первый слой мира на общем контракте, слой 6 под
   // лесом и ёлкой. Общий агрегат из ответа сервера придёт в тот же объект
   // через setCount — второй регистрации и нового цикла нет.
@@ -266,9 +274,8 @@ if (page) {
   const applyVisit = (visit) => {
     if (!visit) return;
     updateCounter(document, visit.count);
-    // Отсчёт от даты не зависит от визита, но синхронизация — удобная и
-    // единственная лишняя точка обновления: без нового цикла и таймера.
-    updateCalendarCounter(document);
+    // Дни обновляет registerCalendar по смене даты — без сети и без
+    // лишнего обновления на каждом визите.
     garland.setState(visit);
     worldGrowth.setCount(visit.count);
   };

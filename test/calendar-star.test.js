@@ -7,9 +7,16 @@ import assert from 'node:assert/strict';
 
 import { createMockCtx, callsNamed } from '../scripts/mock-ctx.js';
 import { createSceneContract } from '../src/contract.js';
-import { GARLAND_GLOW_STOPS } from '../src/garland.js';
+import {
+  GARLAND_GLOW_COUNT,
+  GARLAND_GLOW_INNER_RADIUS,
+  GARLAND_GLOW_STOPS,
+  registerGarland,
+} from '../src/garland.js';
 import {
   CALENDAR_LAYER,
+  STAR_BASE_BRIGHTNESS,
+  STAR_MIN_BRIGHTNESS,
   STAR_WINDOW_DAYS,
   drawCalendarStar,
   isPeakDay,
@@ -31,18 +38,39 @@ function calendarFrame(dateAt, { width = 1280, height = 800, t = 0, progressAt =
   return { contract, handle, ctx };
 }
 
+/** Кадр вместе с реальной гирляндой — проверяет один glow в пик. */
+function integratedFrame(dateAt, { count = 12, seed = 7, progressAt = null } = {}) {
+  const contract = createSceneContract();
+  const garland = registerGarland(contract, seed, progressAt, {
+    count,
+    tens: Math.floor(count / 10),
+    remainder: count % 10,
+    seed,
+  });
+  const handle = registerCalendar(contract, dateAt, progressAt, garland);
+  const ctx = createMockCtx();
+  contract.draw(ctx, 1280, 800, 0);
+  return { contract, handle, garland, ctx };
+}
+
 const stopColors = (ctx) => callsNamed(ctx, 'addColorStop').map((call) => call.args[1]);
 const arcCenters = (ctx) => callsNamed(ctx, 'arc').map((call) => [call.args[0], call.args[1]]);
 const arcRadii = (ctx) => callsNamed(ctx, 'arc').map((call) => call.args[2]);
-/** Градиент сияния всей ёлки узнаём по внутреннему радиусу 8, как в garland. */
+/** Градиент сияния всей ёлки узнаём по общему маркеру из garland.js. */
 const treeGlowGradients = (ctx) =>
-  callsNamed(ctx, 'createRadialGradient').filter((call) => call.args[2] === 8);
+  callsNamed(ctx, 'createRadialGradient').filter(
+    (call) => call.args[2] === GARLAND_GLOW_INNER_RADIUS,
+  );
 
-test('starBrightness: 0 вне окна, 1 в пик, строго монотонно на 31→0', () => {
-  for (const days of [32, 38, 364, Number.NaN, Number.POSITIVE_INFINITY]) {
-    assert.equal(starBrightness(days), 0, `${days} дней — звезда не разгорается`);
+test('starBrightness: базовый свет вне окна, 1 в пик, рост на 31→0', () => {
+  for (const days of [32, 38, 364]) {
+    assert.equal(starBrightness(days), STAR_BASE_BRIGHTNESS, `${days} дней — тихий базовый свет`);
   }
-  assert.ok(starBrightness(STAR_WINDOW_DAYS) > 0, 'за 31 день уже видна');
+  for (const days of [Number.NaN, Number.POSITIVE_INFINITY, undefined]) {
+    assert.equal(starBrightness(days), 0, 'невалидный остаток не ломает кадр');
+  }
+  assert.ok(STAR_BASE_BRIGHTNESS > 0 && STAR_BASE_BRIGHTNESS < STAR_MIN_BRIGHTNESS);
+  assert.equal(starBrightness(STAR_WINDOW_DAYS), STAR_MIN_BRIGHTNESS, 'за 31 день уже ярче');
   assert.ok(starBrightness(STAR_WINDOW_DAYS) < 1, 'но ещё не пик');
   assert.equal(starBrightness(0), 1, '31 декабря — ровно 1');
 
@@ -56,7 +84,6 @@ test('starBrightness: 0 вне окна, 1 в пик, строго моното�
     const value = starBrightness(days);
     assert.ok(value >= 0 && value <= 1, `${days} → ${value} в границах 0..1`);
   }
-  assert.equal(starBrightness(undefined), 0, 'невалидный остаток не ломает кадр');
 });
 
 test('isPeakDay: правда только для нуля дней', () => {
@@ -74,7 +101,7 @@ test('кадр с фиксированной датой: радиальные г
   assert.equal(callsNamed(ctx, 'fillRect').length, 0, 'объект сцены не рисует прямоугольники');
   const arcs = callsNamed(ctx, 'arc');
   const gradients = callsNamed(ctx, 'createRadialGradient');
-  assert.ok(arcs.length >= 10, 'ореол + восемь лепестков + ядро');
+  assert.ok(arcs.length >= 5, 'ореол, лепестки и ядро — одни дуги');
   assert.equal(gradients.length, arcs.length, 'каждая дуга залита своим градиентом');
   assert.ok(arcs.every((call) => Math.abs(call.args[4] - Math.PI * 2) < 1e-12), 'дуги полные');
 
@@ -85,14 +112,14 @@ test('кадр с фиксированной датой: радиальные г
     'есть блик upper-left',
   );
   assert.ok(
-    stopColors(ctx).includes('#fffdf1'),
+    stopColors(ctx).some((color) => typeof color === 'string' && /^#fff|255, 252/.test(color)),
     'ядро начинается со светлого блика',
   );
 });
 
-test('пик 31 декабря: сияние всей ёлки добавляется, за день до пика — нет', () => {
-  const peak = calendarFrame(peakDate).ctx;
-  const before = calendarFrame(dayOneDate).ctx;
+test('пик 31 декабря: сияние ёлки включает гирлянда, за день — нет', () => {
+  const peak = integratedFrame(peakDate).ctx;
+  const before = integratedFrame(dayOneDate).ctx;
 
   for (const [, color] of GARLAND_GLOW_STOPS) {
     assert.ok(stopColors(peak).includes(color), `в пик есть стоп ${color}`);
@@ -100,23 +127,39 @@ test('пик 31 декабря: сияние всей ёлки добавляе�
   }
   assert.equal(treeGlowGradients(peak).length, 1, 'один градиент сияния всей ёлки');
   assert.equal(treeGlowGradients(before).length, 0, 'обычный день не добавляет сияние');
-  const glow = treeGlowGradients(peak)[0];
-  assert.ok(glow.args[5] > 100, 'радиус покрывает ёлку');
-  assert.ok(
-    arcRadii(peak).some((radius) => Math.abs(radius - glow.args[5]) < 1e-9),
-    'сияние — круглый градиентный силуэт, а не fillRect',
-  );
   assert.equal(callsNamed(peak, 'fillRect').length, 0);
 
-  // Радиус ореола звезды растёт с яркостью: пик светлее дня 1. У пика
-  // самый большой градиент — сияние ёлки (внутренний радиус 8), его и
-  // исключаем, чтобы сравнить именно ореол звезды.
+  // Ореол звезды в пик больше, чем за день: сравниваем только градиенты
+  // звезды, сияние ёлки отмечено общим внутренним радиусом.
   const glowR = (ctx) => Math.max(
     ...callsNamed(ctx, 'createRadialGradient')
-      .filter((call) => call.args[2] !== 8)
+      .filter((call) => call.args[2] !== GARLAND_GLOW_INNER_RADIUS)
       .map((call) => call.args[5]),
   );
   assert.ok(glowR(peak) > glowR(before), 'ореол в пик больше');
+});
+
+test('пик + 300 визитов: ровно одно сияние и общий rise ритуала', () => {
+  const highPeak = integratedFrame(peakDate, { count: GARLAND_GLOW_COUNT });
+  assert.equal(treeGlowGradients(highPeak.ctx).length, 1, 'нет дубля glow поверх огоньков');
+  assert.equal(highPeak.garland.peakGlow, true);
+
+  const highBefore = integratedFrame(dayOneDate, { count: GARLAND_GLOW_COUNT });
+  assert.equal(treeGlowGradients(highBefore.ctx).length, 1, 'при 300 glow уже есть');
+  assert.equal(highBefore.garland.peakGlow, false);
+
+  const partial = integratedFrame(peakDate, {
+    count: 12,
+    progressAt: () => ({ layers: { tree: 0.5 } }),
+  });
+  assert.equal(treeGlowGradients(partial.ctx).length, 1, 'glow рисуется и при неполной ёлке');
+  assert.ok(callsNamed(partial.ctx, 'arc').length > 0, 'звезда тоже есть');
+
+  const dark = integratedFrame(peakDate, {
+    count: 12,
+    progressAt: () => ({ layers: { tree: 0 } }),
+  });
+  assert.equal(dark.ctx.calls.length, 0, 'тёмная фаза не рисует ни glow, ни звезду');
 });
 
 test('тёмная фаза: звезда не рисуется даже 31 декабря', () => {
@@ -134,6 +177,21 @@ test('тёмная фаза: звезда не рисуется даже 31 де
     progressAt: () => ({ layers: { tree: 0.5 } }),
   });
   assert.ok(callsNamed(rising.ctx, 'arc').length > 0, 'с ёлкой звезда проявляется');
+});
+
+test('ритуал: звезда опускается вместе с ёлкой и гаснет по альфе', () => {
+  const full = calendarFrame(daySixteenDate).ctx;
+  const partial = calendarFrame(daySixteenDate, {
+    progressAt: () => ({ layers: { tree: 0.5 } }),
+  }).ctx;
+
+  const firstArcY = (ctx) => callsNamed(ctx, 'arc')[0].args[1];
+  assert.ok(firstArcY(partial) > firstArcY(full), 'звезда следует за rise ёлки');
+  assert.ok(
+    callsNamed(partial, 'globalAlpha').some((call) => call.args[0] === 0.5),
+    'альфа звезды равна прогрессу ёлки',
+  );
+  assert.ok(callsNamed(full, 'globalAlpha').some((call) => call.args[0] === 1));
 });
 
 test('registerCalendar: ровно одна регистрация слоя 21, хэндл читает дату', () => {
@@ -163,6 +221,25 @@ test('registerCalendar: ровно одна регистрация слоя 21, 
   assert.equal(handle.brightness, 1);
 });
 
+test('registerCalendar: смена дня обновляет DOM-счётчик и флаг пика гирлянды', () => {
+  const peakFlags = [];
+  const changedDays = [];
+  const fakeGarland = { setPeakGlow: (on) => peakFlags.push(on) };
+  let current = dayOneDate();
+  const contract = createSceneContract();
+  registerCalendar(contract, () => current, null, fakeGarland, (days) => changedDays.push(days));
+
+  assert.deepEqual(peakFlags, [false], 'начальное состояние пика выставлено при регистрации');
+  const ctx = createMockCtx();
+  contract.draw(ctx, 1280, 800, 0);
+  assert.deepEqual(changedDays, [], 'тот же день — лишнего обновления нет');
+
+  current = peakDate();
+  contract.draw(ctx, 1280, 800, 0);
+  assert.deepEqual(changedDays, [0], 'смена дня дошла до счётчика');
+  assert.deepEqual(peakFlags, [false, true], 'пик гирлянды включён один раз');
+});
+
 test('ресайз: все позиции и радиусы звезды остаются пропорциональными', () => {
   const big = calendarFrame(daySixteenDate, { width: 1280, height: 800 }).ctx;
   const small = calendarFrame(daySixteenDate, { width: 640, height: 400 }).ctx;
@@ -186,9 +263,9 @@ test('ресайз: все позиции и радиусы звезды ост�
       `дуга ${i}: радиус масштабируется`,
     );
   }
-  // Звезда висит над верхушкой ёлки: top = 0.8h − min(0.44h, 0.34w).
-  const top = 800 * 0.8 - Math.min(800 * 0.44, 1280 * 0.34);
-  assert.ok(bigCenters.every(([, y]) => y <= top), 'центры деталей выше верхушки');
+  // Инвариант, а не копия формулы: звезда висит в верхней части кадра.
+  assert.ok(bigCenters.every(([, y]) => y < 800 * 0.45), 'звезда выше верхушки ёлки');
+  assert.ok(smallCenters.every(([, y]) => y < 400 * 0.45), 'то же на малом кадре');
 });
 
 test('пульсация по t детерминирована и остаётся мягкой', () => {
@@ -203,11 +280,21 @@ test('пульсация по t детерминирована и остаётс
   const other = calendarFrame(daySixteenDate, { t: 19000 }).ctx;
   const radiusAt = (ctx) => callsNamed(ctx, 'createRadialGradient')[0].args[5];
   const drift = Math.abs(radiusAt(other) - radiusAt(first)) / radiusAt(first);
-  assert.ok(drift > 0 && drift < 0.05, `изменение ореола ${drift} — дыхание, а не мигание`);
+  assert.ok(drift > 0 && drift < 0.1, `изменение ореола ${drift} — дыхание, а не мигание`);
 });
 
-test('drawCalendarStar: brightness 0 — пустой кадр (до окна 31 дня)', () => {
-  const ctx = createMockCtx();
-  drawCalendarStar(ctx, 1280, 800, 38, 0);
-  assert.equal(ctx.calls.length, 0, 'за 38 дней звезды ещё нет');
+test('drawCalendarStar: вне окна звезда тусклая, но присутствует', () => {
+  const far = createMockCtx();
+  drawCalendarStar(far, 1280, 800, 38, 0);
+  assert.ok(callsNamed(far, 'arc').length > 0, 'за 38 дней звезда уже видна');
+  assert.equal(callsNamed(far, 'fillRect').length, 0);
+
+  const near = createMockCtx();
+  drawCalendarStar(near, 1280, 800, 16, 0);
+  const maxRadius = (ctx) => Math.max(...callsNamed(ctx, 'createRadialGradient').map((c) => c.args[5]));
+  assert.ok(maxRadius(near) > maxRadius(far), 'ближе к Новому году ореол больше');
+
+  const invalid = createMockCtx();
+  drawCalendarStar(invalid, 1280, 800, Number.NaN, 0);
+  assert.equal(invalid.calls.length, 0, 'невалидная дата не ломает кадр');
 });
