@@ -3,7 +3,7 @@ title: 'Фигуры, машущие в сторону экрана'
 type: feature
 ticket: '2'
 created: '2026-11-23'
-status: built
+status: done
 baseline_revision: '2df18a8'
 route: full
 route_source: auto

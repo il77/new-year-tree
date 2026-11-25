@@ -3,7 +3,7 @@ title: 'Счётчик дней и звезда на сцене'
 type: feature
 ticket: '1'
 created: '2026-11-23'
-status: built
+status: done
 baseline_revision: '4b302c3'
 route: full
 route_source: auto

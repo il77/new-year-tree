@@ -9,7 +9,7 @@ companions: ["docs/contract.md", "docs/style.md", "docs/design-final.html"]
 after: ["epic-scene"]
 refined: true
 risk: high
-status: in-progress
+status: done
 ---
 
 # Общая гирлянда и счётчик входов
@@ -67,3 +67,4 @@ status: in-progress
 - Decision: 2026-11-22 — находки ретро epic-scene 7–11 и 16–23 (надёжность контракта/rAF, globalAlpha, guards, тесты, формулировки docs) идут в этот эпик: story 4 закрывает риск точки расширения до прихода эпиков 3–4, остальное — в Refactor sweep story 5.
 - Decision: 2026-11-23 — `docs/` остаётся repo-only окончательно: не включается в `dist/` и закрыта в сервере (`/docs/` → 404); примеры systemd/nginx подготовлены в `deploy/`, публикацию и датированную проверку в двух браузерах делает человек (by user).
 - Waits on epic-scene because: контракт рендера и живая сцена уже работают; деплой перенесён сюда.
+- Closure: 2026-11-25 — человек сказал «проверил» для <https://zaytse3x.ddns.net>; story 2.6 закрыта, эпик завершён. Детали проверки человеком не сообщались.

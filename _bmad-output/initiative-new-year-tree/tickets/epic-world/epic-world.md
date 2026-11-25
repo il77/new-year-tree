@@ -9,6 +9,7 @@ companions: ["docs/contract.md", "docs/style.md"]
 after: ["epic-scene", "epic-garland", "epic-calendar"]
 refined: true
 risk: medium
+status: done
 ---
 
 # Мир растёт вокруг ёлки
@@ -56,3 +57,4 @@ risk: medium
 - Waits on epic-scene because: контракт рендера и живая сцена уже работают; фоновые снег, лес и покачивание камеры здесь не дублируются.
 - Waits on epic-garland because: общий счётчик входов — источник прогресса слоёв мира.
 - Waits on epic-calendar because: звезда и счётчик дней уже на сцене — новые слои не должны их перекрывать, а финальная проверка видит всю сцену целиком.
+- Closure: 2026-11-25 — человек сказал «проверил» для <https://zaytse3x.ddns.net>; story 4.5 закрыта по прямому указанию, эпик и инициатива завершены. Подробности проверки человеком не сообщались и не фиксируются.

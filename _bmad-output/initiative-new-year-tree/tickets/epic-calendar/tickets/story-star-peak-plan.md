@@ -3,7 +3,7 @@ title: 'Рост яркости звезды и пик 31 декабря'
 type: feature
 ticket: '2'
 created: '2026-11-23'
-status: built
+status: done
 baseline_revision: '297ad2f'
 route: full
 route_source: auto
